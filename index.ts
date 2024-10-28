@@ -46,6 +46,7 @@ async function reloadThenExecuteAndCommitLogs(remoteName, command) {
   const repoDirectory = (await $`git rev-parse --show-toplevel`.text()).trim();
   const logDirectory = join(repoDirectory, 'bgr-output');
   let firstRun = true;
+  let currentProcess = null;
 
   while (true) {
     try {
@@ -63,8 +64,29 @@ async function reloadThenExecuteAndCommitLogs(remoteName, command) {
         console.log("⬇️ Pulling latest changes...");
         await $`git pull ${remoteName} $(git rev-parse --abbrev-ref HEAD)`;
 
+        if (currentProcess) {
+          console.log("🛑 Terminating existing process...");
+          currentProcess.kill();
+          await currentProcess.exited;
+        }
+
         console.log(`🚀 Executing command: ${command}`);
-        const stdout = await $`${{ raw: command }} 2>&1`.nothrow().text();
+        currentProcess = Bun.spawn(command.split(' '), {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+
+        const stdout = await new Response(currentProcess.stdout).text();
+        const stderr = await new Response(currentProcess.stderr).text();
+
+        await currentProcess.exited;
+
+        if (currentProcess.exitCode !== 0) {
+          console.error(`❌ Command failed with exit code ${currentProcess.exitCode}`);
+          console.error(stderr);
+          continue;
+        }
+
         console.log(`📜 Command output: ${stdout}`);
 
         const logFileName = `log_${getFormattedTime().replace(/[: ]/g, '_')}.txt`;
