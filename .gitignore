@@ -1,0 +1,5 @@
+*.sqlite
+bgr.sqlite
+bin/*
+!bin/build.sh
+node_modules
