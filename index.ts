@@ -1,67 +1,50 @@
-import { $, sleep } from "bun";
+import { $, sleep, file } from "bun";
 import { join } from "path";
-import { file } from "bun";
 
-// Get the current working directory of where the script is executed
-const repoDirectory = (await $`git rev-parse --show-toplevel`.text()).trim();
-const logDirectory = join(repoDirectory, 'bgr-output');
-
-// Get the remote name from environment variable or use default
-const remoteName = process.env.GIT_REMOTE_NAME || "7flash";
-console.log(`🔗 Using git remote: ${remoteName}`);
-
-// Read package.json to get the refresh command
-const packageJsonPath = join(repoDirectory, 'package.json');
-const packageJsonBlob = file(packageJsonPath);
-
-let packageJson: any;
-
-try {
-  console.log(`📄 Reading package.json from ${packageJsonPath}...`);
-  packageJson = JSON.parse(await packageJsonBlob.text());
-  console.log("✅ Successfully parsed package.json.");
-} catch (err) {
-  console.error("❌ Error: Unable to parse package.json.");
-  console.error("Please ensure your package.json is valid JSON. Example:");
-  console.error(`
-{
-  "name": "your-project",
-  "version": "1.0.0",
-  "refresh_cmd": "your-command-here"
-}
-  `);
-  process.exit(1);
-}
-
-if (!packageJson.refresh_cmd) {
-  console.error("❌ Error: 'refresh_cmd' is missing in package.json.");
-  console.error("Please add 'refresh_cmd' to your package.json. Example:");
-  console.error(`
-{
-  "name": "your-project",
-  "version": "1.0.0",
-  "refresh_cmd": "your-command-here"
-}
-  `);
-  process.exit(1);
-}
-
-const command = packageJson.refresh_cmd;
-console.log(`🔄 Refresh command: ${command}`);
-
-function getFormattedTime(): string {
+// Utility function to get formatted current time
+function getFormattedTime() {
   const now = new Date();
-  const pad = (num: number) => num.toString().padStart(2, '0');
-  const year = now.getFullYear();
-  const month = pad(now.getMonth() + 1); // months are 0-based
-  const day = pad(now.getDate());
-  const hours = pad(now.getHours());
-  const minutes = pad(now.getMinutes());
-  const seconds = pad(now.getSeconds());
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+  const pad = (num) => num.toString().padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 }
 
-async function reloadThenExecuteAndCommitLogs() {
+// Function to parse command-line arguments
+function parseArguments() {
+  const args = process.argv.slice(2);
+  const options = { remoteName: "origin", command: null };
+
+  args.forEach((arg, index) => {
+    if (arg.startsWith("--remote=")) {
+      options.remoteName = arg.split("=")[1];
+    } else if (index === 0) {
+      options.command = arg;
+    }
+  });
+
+  return options;
+}
+
+// Function to read and parse package.json
+async function getPackageJsonCommand(repoDirectory) {
+  const packageJsonPath = join(repoDirectory, 'package.json');
+  const packageJsonBlob = file(packageJsonPath);
+
+  try {
+    console.log(`📄 Reading package.json from ${packageJsonPath}...`);
+    const packageJson = JSON.parse(await packageJsonBlob.text());
+    console.log("✅ Successfully parsed package.json.");
+    return packageJson.refresh_cmd;
+  } catch (err) {
+    console.error("❌ Error: Unable to parse package.json.");
+    console.error("Please ensure your package.json is valid JSON.");
+    process.exit(1);
+  }
+}
+
+// Main function to reload, execute, and commit logs
+async function reloadThenExecuteAndCommitLogs(remoteName, command) {
+  const repoDirectory = (await $`git rev-parse --show-toplevel`.text()).trim();
+  const logDirectory = join(repoDirectory, 'bgr-output');
   let firstRun = true;
 
   while (true) {
@@ -81,7 +64,7 @@ async function reloadThenExecuteAndCommitLogs() {
         await $`git pull ${remoteName} $(git rev-parse --abbrev-ref HEAD)`;
 
         console.log(`🚀 Executing command: ${command}`);
-        let stdout = await $`${{ raw: command }} 2>&1`.nothrow().text();
+        const stdout = await $`${{ raw: command }} 2>&1`.nothrow().text();
         console.log(`📜 Command output: ${stdout}`);
 
         const logFileName = `log_${getFormattedTime().replace(/[: ]/g, '_')}.txt`;
@@ -93,7 +76,6 @@ async function reloadThenExecuteAndCommitLogs() {
 
         console.log(`🌿 Current branch: ${currentBranch}`);
 
-        // Get the last commit message and trim to its first line
         const lastCommitMessage = (await $`git log -1 --pretty=%B`.text()).trim().split('\n')[0];
         const commitMessage = `bgr - ${lastCommitMessage}`;
 
@@ -127,7 +109,6 @@ async function reloadThenExecuteAndCommitLogs() {
         console.log("🔍 No changes detected.");
       }
 
-      // Update the terminal line with the date of the last update and hash
       process.stdout.write(`⏳ Last checked at ${getFormattedTime()} | Local: ${localHash} | Remote: ${remoteHash}\r`);
     } catch (err) {
       console.error("❌ Error during reload and execute cycle:", err);
@@ -137,7 +118,23 @@ async function reloadThenExecuteAndCommitLogs() {
   }
 }
 
+async function main() {
+  const { remoteName, command } = parseArguments();
+  console.log(`🔗 Using git remote: ${remoteName}`);
+
+  const repoDirectory = (await $`git rev-parse --show-toplevel`.text()).trim();
+  const refreshCommand = command || await getPackageJsonCommand(repoDirectory);
+
+  if (!refreshCommand) {
+    console.error("❌ Error: 'refresh_cmd' is missing in package.json.");
+    process.exit(1);
+  }
+
+  console.log(`🔄 Refresh command: ${refreshCommand}`);
+  await reloadThenExecuteAndCommitLogs(remoteName, refreshCommand);
+}
+
 if (import.meta.path === Bun.main) {
   console.log("🚀 Starting the reload and execute cycle...");
-  reloadThenExecuteAndCommitLogs();
+  main();
 }
