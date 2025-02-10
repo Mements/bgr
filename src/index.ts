@@ -139,6 +139,7 @@ async function parseConfigFile(configPath: string): Promise<Record<string, strin
   return flattenConfig(parsedConfig);
 }
 
+// todo: it should also delete logs files
 async function handleDelete(name: string) {
   const process = db.query(`SELECT * FROM processes WHERE name = ?`).get(name) as ProcessRecord;
   if (!process) {
@@ -150,40 +151,72 @@ async function handleDelete(name: string) {
     await terminateProcess(process.pid);
   }
 
+  if (fs.existsSync(process.stdout_path)) {
+    fs.unlinkSync(process.stdout_path);
+  }
+  if (fs.existsSync(process.stderr_path)) {
+    fs.unlinkSync(process.stderr_path);
+  }  
+
   db.query(`DELETE FROM processes WHERE name = ?`).run(name);
   announce(`Process '${name}' has been ${isRunning ? 'stopped and ' : ''}deleted`, "Process Deleted");
 }
 
-// Add helper instructions to showAll
-async function showProcessManagementInstructions(processes: ProcessRecord[]) {
-  if (processes.length > 0) {
-    const firstProcess = processes[0];
-    const instructions = dedent`
-      ${chalk.bold('Quick Management Commands:')}
-      ${chalk.gray('═'.repeat(50))}
+async function handleClean() {
+  const processes = db.query(`SELECT * FROM processes`).all() as ProcessRecord[];
+  let cleanedCount = 0;
+  let deletedLogs = 0;
 
-      ${chalk.cyan.bold('Restart process:')}
-      $ bgr ${firstProcess.name} --restart
+  for (const proc of processes) {
+    const running = await isProcessRunning(proc.pid);
+    if (!running) {
+      // Delete the process from database
+      db.query(`DELETE FROM processes WHERE pid = ?`).run(proc.pid);
+      cleanedCount++;
 
-      ${chalk.cyan.bold('Stop and delete process:')}
-      $ bgr --delete ${firstProcess.name}
-
-      ${chalk.cyan.bold('View process details:')}
-      $ bgr ${firstProcess.name}
-    `;
-    console.log(boxen(instructions, {
-      padding: 1,
-      margin: 1,
-      borderColor: 'blue',
-      title: "Management Options",
-      titleAlignment: 'center'
-    }));
+      // Delete associated log files if they exist
+      if (fs.existsSync(proc.stdout_path)) {
+        fs.unlinkSync(proc.stdout_path);
+        deletedLogs++;
+      }
+      if (fs.existsSync(proc.stderr_path)) {
+        fs.unlinkSync(proc.stderr_path);
+        deletedLogs++;
+      }
+    }
   }
+
+  if (cleanedCount === 0) {
+    announce("No stopped processes found to clean.", "Clean Complete");
+  } else {
+    announce(
+      `Cleaned ${cleanedCount} stopped ${cleanedCount === 1 ? 'process' : 'processes'} and removed ${deletedLogs} log ${deletedLogs === 1 ? 'file' : 'files'}.`,
+      "Clean Complete"
+    );
+  }
+}
+
+// todo: implement another command "bgr --clean" to delete only those processes which are not running anymore plus delete their logs files 
+
+async function handleDeleteAll() {
+  const processes = db.query(`SELECT * FROM processes`).all() as ProcessRecord[];
+  if (processes.length === 0) {
+    announce("There are no processes to delete.", "Delete All");
+    return;
+  }
+  for (const proc of processes) {
+    const running = await isProcessRunning(proc.pid);
+    if (running) {
+      await terminateProcess(proc.pid);
+    }
+  }
+  db.query(`DELETE FROM processes`).run();
+  announce("All processes have been stopped and deleted.", "Delete All");
 }
 
 async function showAll() {
   const processes = db.query(`SELECT * FROM processes`).all() as ProcessRecord[];
-  const status = {};
+  const status: Record<number, string> = {};
   for (const process of processes) {
     status[process.pid] = await isProcessRunning(process.pid) 
       ? chalk.green.bold("● Running") 
@@ -235,13 +268,19 @@ ${Object.entries(envVars)
   announce(details, `Process Details: ${name}`);
 }
 
-async function handleShow(options: CommandOptions) {
-  const { name } = options;
-  if (!name) {
-    await showAll();
-  } else {
-    await showDetails(name);
+async function retryDatabaseOperation<T>(operation: () => T, maxRetries = 5, delay = 100): Promise<T> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return operation();
+    } catch (err: any) {
+      if (err?.code === 'SQLITE_BUSY' && attempt < maxRetries) {
+        await sleep(delay * attempt); // Exponential backoff
+        continue;
+      }
+      throw err;
+    }
   }
+  throw new Error('Max retries reached for database operation');
 }
 
 async function handleRun(options: CommandOptions) {
@@ -280,7 +319,9 @@ async function handleRun(options: CommandOptions) {
       announce(`🔥 Terminated existing process '${name}'`, "Process Terminated");
     }
 
-    db.query(`DELETE FROM processes WHERE pid = ?`).run(existingProcess.pid);    
+    await retryDatabaseOperation(() => 
+      db.query(`DELETE FROM processes WHERE pid = ?`).run(existingProcess.pid)
+    );
   } else {
     if (!directory || !name || !command) {
       error("'directory', 'name', and 'command' parameters are required for new processes.");
@@ -314,19 +355,21 @@ async function handleRun(options: CommandOptions) {
 
   const timestamp = new Date().toISOString();
   
-  db.query(
-    `INSERT INTO processes (pid, workdir, command, name, env, configPath, stdout_path, stderr_path, timestamp) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-      newProcess.pid,
-      finalDirectory,
-      finalCommand,
-      name!,
-      Object.entries(finalEnv).map(([k,v]) => `${k}=${v}`).join(","),
-      configPath!,
-      stdoutPath,
-      stderrPath,
-      timestamp
+  await retryDatabaseOperation(() => 
+    db.query(
+      `INSERT INTO processes (pid, workdir, command, name, env, configPath, stdout_path, stderr_path, timestamp) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+        newProcess.pid,
+        finalDirectory,
+        finalCommand,
+        name!,
+        Object.entries(finalEnv).map(([k,v]) => `${k}=${v}`).join(","),
+        configPath!,
+        stdoutPath,
+        stderrPath,
+        timestamp
+    )
   );
 
   announce(
@@ -362,8 +405,11 @@ async function showHelp() {
     Restart process:
     $ bgr <process-name> --restart
     
-    Delete process:
+    Delete process (by name):
     $ bgr --delete <process-name>
+    
+    Delete ALL processes:
+    $ bgr --nuke
 
     2. Optional Parameters
     ${chalk.gray('─'.repeat(30))}
@@ -374,6 +420,7 @@ async function showHelp() {
     --stderr    <path>    Custom stderr log path
     --db        <path>    Custom database file path
     --help               Show this help message
+    --nuke               Delete all processes (use with caution!)
 
     3. Environment
     ${chalk.gray('─'.repeat(30))}
@@ -396,6 +443,8 @@ async function showHelp() {
   announce(usage, "BGR Usage Guide");
 }
 
+
+
 async function main() {
   const args = parseArgs({
     args: Bun.argv,
@@ -412,7 +461,9 @@ async function main() {
       help: { type: "boolean" },
       restart: { type: "boolean" },
       delete: { type: "boolean" },
-      db: { type: "string" }
+      db: { type: "string" },
+      nuke: { type: "boolean" },
+      clean: { type: "boolean" },
     },
     allowPositionals: true
   });
@@ -440,12 +491,21 @@ async function main() {
   }
 
   const processName = args.positionals[2];
+  console.log("processName ==> ", processName);
 
   let action: string;
   if (args.values.help) {
     action = 'help';
+  } else if (args.values.nuke) {
+    action = 'delete-all';
+  } else if (args.values.clean) {
+    action = 'clean';
   } else if (args.values.delete) {
-    action = 'delete';
+    if (processName || args.values.name) {
+      action = 'delete';
+    } else {
+      error("Please specify a process name to delete or use --nuke to delete all processes");
+    }
   } else if (args.values.restart) {
     action = 'run';
     args.values.force = true;
@@ -507,13 +567,20 @@ async function main() {
         await handleDelete(options.name!);
         break;
 
+      case 'delete-all':
+        await handleDeleteAll();
+        break;
+
+      case 'clean':
+        await handleClean();
+        break;
+
       default:
         error("Invalid action specified");
     }
   } catch (err) {
     error(`Unexpected error: ${err}`);
   }
-
 }
 
 if (import.meta.path === Bun.main) {
