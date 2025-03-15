@@ -331,11 +331,17 @@ async function handleRun(options: CommandOptions) {
   const finalDirectory = directory || (existingProcess?.workdir!);
 
   let finalEnv = env || (existingProcess ? parseEnvString(existingProcess.env) : {});
-  if (configPath) {
-    const newConfigEnv = await parseConfigFile(join(finalDirectory, configPath));
-    finalEnv = { ...finalEnv, ...newConfigEnv };
+  const finalConfigPath = configPath || existingProcess?.configPath;
+  if (finalConfigPath) {
+    try {
+      const fullConfigPath = join(finalDirectory, finalConfigPath);
+      const newConfigEnv = await parseConfigFile(fullConfigPath);
+      finalEnv = { ...finalEnv, ...newConfigEnv };
+    } catch (err) {
+      console.error(`Failed to parse config file: ${err}`);
+    }
   }
-
+  
   const stdoutPath = stdout || join(homePath, ".meps", `${name}-out.txt`);
   Bun.write(stdoutPath, '');
   const stderrPath = stderr || join(homePath, ".meps", `${name}-err.txt`);
@@ -362,7 +368,7 @@ async function handleRun(options: CommandOptions) {
       finalCommand,
       name!,
       Object.entries(finalEnv).map(([k, v]) => `${k}=${v}`).join(","),
-      configPath!,
+      finalConfigPath || '',
       stdoutPath,
       stderrPath,
       timestamp
