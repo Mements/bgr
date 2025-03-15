@@ -1,4 +1,0 @@
-{
-  "excludedProcesses": ["ci"],
-  "checkInterval": 1
-}

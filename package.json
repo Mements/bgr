@@ -1,7 +1,36 @@
 {
   "name": "bgr",
+  "version": "1.0.6",
+  "description": "Bun: Background Runner - A lightweight process manager written in Bun",
   "module": "src/index.ts",
   "type": "module",
+  "bin": {
+    "bgr": "./bin/bgr"
+  },
+  "scripts": {
+    "build": "bun build ./src/index.ts --compile --outfile ./bin/bgr",
+    "prepublishOnly": "bun run build"
+  },
+  "files": [
+    "bin/bgr",
+    "examples/guard.ts",
+    "README.md"
+  ],
+  "keywords": [
+    "process-manager",
+    "bun",
+    "monitoring",
+    "devops",
+    "deployment",
+    "background",
+    "daemon"
+  ],
+  "author": "7flash",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/7flash/bgr.git"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
@@ -12,5 +41,8 @@
     "boxen": "^8.0.1",
     "chalk": "^5.4.1",
     "dedent": "^1.5.3"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
   }
 }

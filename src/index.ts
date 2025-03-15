@@ -9,7 +9,7 @@ import dedent from "dedent";
 
 interface CommandOptions {
   remoteName: string;
-  command?: string;  
+  command?: string;
   directory?: string;
   env?: Record<string, string>;
   configPath?: string;
@@ -26,7 +26,7 @@ interface ProcessRecord {
   id: number;
   pid: number;
   workdir: string;
-  command: string; 
+  command: string;
   name: string;
   env: string;
   timestamp: string;
@@ -65,7 +65,7 @@ function announce(message: string, title?: string) {
       padding: 1,
       margin: 1,
       borderColor: 'green',
-      title: title || "bgr",
+      title: title || "meps",
       titleAlignment: 'center',
       borderStyle: 'round'
     })
@@ -139,7 +139,6 @@ async function parseConfigFile(configPath: string): Promise<Record<string, strin
   return flattenConfig(parsedConfig);
 }
 
-// todo: it should also delete logs files
 async function handleDelete(name: string) {
   const process = db.query(`SELECT * FROM processes WHERE name = ?`).get(name) as ProcessRecord;
   if (!process) {
@@ -156,7 +155,7 @@ async function handleDelete(name: string) {
   }
   if (fs.existsSync(process.stderr_path)) {
     fs.unlinkSync(process.stderr_path);
-  }  
+  }
 
   db.query(`DELETE FROM processes WHERE name = ?`).run(name);
   announce(`Process '${name}' has been ${isRunning ? 'stopped and ' : ''}deleted`, "Process Deleted");
@@ -196,8 +195,6 @@ async function handleClean() {
   }
 }
 
-// todo: implement another command "bgr --clean" to delete only those processes which are not running anymore plus delete their logs files 
-
 async function handleDeleteAll() {
   const processes = db.query(`SELECT * FROM processes`).all() as ProcessRecord[];
   if (processes.length === 0) {
@@ -218,11 +215,11 @@ async function showAll() {
   const processes = db.query(`SELECT * FROM processes`).all() as ProcessRecord[];
   const status: Record<number, string> = {};
   for (const process of processes) {
-    status[process.pid] = await isProcessRunning(process.pid) 
-      ? chalk.green.bold("● Running") 
+    status[process.pid] = await isProcessRunning(process.pid)
+      ? chalk.green.bold("● Running")
       : chalk.red.bold("○ Stopped");
   }
-  
+
   announce("📋 Currently Monitored Processes", "Process List");
   console.table(processes.map(process => ({
     ID: chalk.blue(process.id),
@@ -261,8 +258,8 @@ ${chalk.red.bold('Stderr Path:')} ${process.stderr_path}
 ${chalk.bold('🔧 Environment Variables:')}
 ${chalk.gray('═'.repeat(50))}
 ${Object.entries(envVars)
-  .map(([key, value]) => `${chalk.cyan.bold(key)} = ${chalk.yellow(value)}`)
-  .join('\n')}
+      .map(([key, value]) => `${chalk.cyan.bold(key)} = ${chalk.yellow(value)}`)
+      .join('\n')}
 `;
 
   announce(details, `Process Details: ${name}`);
@@ -285,9 +282,9 @@ async function retryDatabaseOperation<T>(operation: () => T, maxRetries = 5, del
 
 async function handleRun(options: CommandOptions) {
   const { command, directory, env, name, configPath, force, fetch, stdout, stderr } = options;
-  
+
   const existingProcess = name ? db.query(`SELECT * FROM processes WHERE name = ? ORDER BY timestamp DESC LIMIT 1`).get(name) as ProcessRecord : null;
-  
+
   if (existingProcess) {
     const finalDirectory = directory || existingProcess.workdir;
 
@@ -299,7 +296,7 @@ async function handleRun(options: CommandOptions) {
         await $`git fetch origin`;
         const localHash = (await $`git rev-parse HEAD`.text()).trim();
         const remoteHash = (await $`git rev-parse origin/$(git rev-parse --abbrev-ref HEAD)`.text()).trim();
-        
+
         if (localHash !== remoteHash) {
           await $`git pull origin $(git rev-parse --abbrev-ref HEAD)`;
           announce("📥 Pulled latest changes", "Git Update");
@@ -319,7 +316,7 @@ async function handleRun(options: CommandOptions) {
       announce(`🔥 Terminated existing process '${name}'`, "Process Terminated");
     }
 
-    await retryDatabaseOperation(() => 
+    await retryDatabaseOperation(() =>
       db.query(`DELETE FROM processes WHERE pid = ?`).run(existingProcess.pid)
     );
   } else {
@@ -332,16 +329,16 @@ async function handleRun(options: CommandOptions) {
 
   const finalCommand = command || existingProcess!.command;
   const finalDirectory = directory || (existingProcess?.workdir!);
-  
+
   let finalEnv = env || (existingProcess ? parseEnvString(existingProcess.env) : {});
   if (configPath) {
     const newConfigEnv = await parseConfigFile(join(finalDirectory, configPath));
     finalEnv = { ...finalEnv, ...newConfigEnv };
   }
 
-  const stdoutPath = stdout || join(homePath, ".bgr", `${name}-out.txt`);
+  const stdoutPath = stdout || join(homePath, ".meps", `${name}-out.txt`);
   Bun.write(stdoutPath, '');
-  const stderrPath = stderr || join(homePath, ".bgr", `${name}-err.txt`);
+  const stderrPath = stderr || join(homePath, ".meps", `${name}-err.txt`);
   Bun.write(stderrPath, '');
 
   const newProcess = Bun.spawn(finalCommand.split(" "), {
@@ -354,21 +351,21 @@ async function handleRun(options: CommandOptions) {
   newProcess.unref();
 
   const timestamp = new Date().toISOString();
-  
-  await retryDatabaseOperation(() => 
+
+  await retryDatabaseOperation(() =>
     db.query(
       `INSERT INTO processes (pid, workdir, command, name, env, configPath, stdout_path, stderr_path, timestamp) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-        newProcess.pid,
-        finalDirectory,
-        finalCommand,
-        name!,
-        Object.entries(finalEnv).map(([k,v]) => `${k}=${v}`).join(","),
-        configPath!,
-        stdoutPath,
-        stderrPath,
-        timestamp
+      newProcess.pid,
+      finalDirectory,
+      finalCommand,
+      name!,
+      Object.entries(finalEnv).map(([k, v]) => `${k}=${v}`).join(","),
+      configPath!,
+      stdoutPath,
+      stderrPath,
+      timestamp
     )
   );
 
@@ -385,7 +382,7 @@ async function hasRunningProcesses(): Promise<boolean> {
 
 async function showHelp() {
   const usage = dedent`
-    ${chalk.bold('bgr - Background Process Manager')}
+    ${chalk.bold('meps - Mements Process Manager')}
     ${chalk.gray('═'.repeat(50))}
 
     ${chalk.cyan.bold('Commands:')}
@@ -393,23 +390,26 @@ async function showHelp() {
     1. Process Management
     ${chalk.gray('─'.repeat(30))}
     List all processes:
-    $ bgr
+    $ meps
     
     View process details:
-    $ bgr <process-name>
-    $ bgr --name <process-name>
+    $ meps <process-name>
+    $ meps --name <process-name>
     
     Start new process:
-    $ bgr --name <process-name> --directory <path> --command "<command>"
+    $ meps --name <process-name> --directory <path> --command "<command>"
     
     Restart process:
-    $ bgr <process-name> --restart
+    $ meps <process-name> --restart
     
     Delete process (by name):
-    $ bgr --delete <process-name>
+    $ meps --delete <process-name>
     
     Delete ALL processes:
-    $ bgr --nuke
+    $ meps --nuke
+
+    Clean stopped processes:
+    $ meps --clean
 
     2. Optional Parameters
     ${chalk.gray('─'.repeat(30))}
@@ -424,26 +424,24 @@ async function showHelp() {
 
     3. Environment
     ${chalk.gray('─'.repeat(30))}
-    Default database location: ~/.bgr/bgr.sqlite
-    Default log location: ~/.bgr/<process-name>-{out|err}.txt
+    Default database location: ~/.meps/meps.sqlite
+    Default log location: ~/.meps/<process-name>-{out|err}.txt
     
     ${chalk.bold('Examples:')}
     Start a Node.js application:
-    $ bgr --name myapp --directory ~/projects/myapp --command "npm start"
+    $ meps --name myapp --directory ~/projects/myapp --command "npm start"
     
     Restart with latest changes:
-    $ bgr myapp --restart --fetch
+    $ meps myapp --restart --fetch
     
     Use custom database:
-    $ bgr --db ~/custom/path/mydb.sqlite
+    $ meps --db ~/custom/path/mydb.sqlite
     
     Start with custom config:
-    $ bgr --name myapp --config custom.config.toml --directory ./app
+    $ meps --name myapp --config custom.config.toml --directory ./app
   `;
-  announce(usage, "BGR Usage Guide");
+  announce(usage, "MEPS Usage Guide");
 }
-
-
 
 async function main() {
   const args = parseArgs({
@@ -491,7 +489,6 @@ async function main() {
   }
 
   const processName = args.positionals[2];
-  console.log("processName ==> ", processName);
 
   let action: string;
   if (args.values.help) {
@@ -549,7 +546,7 @@ async function main() {
         } else {
           announce(
             "No running processes found. Use the following commands to get started:",
-            "Welcome to BGR"
+            "Welcome to MEPS"
           );
           await showHelp();
         }
