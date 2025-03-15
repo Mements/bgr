@@ -65,7 +65,7 @@ function announce(message: string, title?: string) {
       padding: 1,
       margin: 1,
       borderColor: 'green',
-      title: title || "meps",
+      title: title || "bgr",
       titleAlignment: 'center',
       borderStyle: 'round'
     })
@@ -333,25 +333,31 @@ async function handleRun(options: CommandOptions) {
   let finalEnv = env || (existingProcess ? parseEnvString(existingProcess.env) : {});
   const finalConfigPath = configPath || existingProcess?.configPath;
   if (finalConfigPath) {
-    try {
-      const fullConfigPath = join(finalDirectory, finalConfigPath);
-      const newConfigEnv = await parseConfigFile(fullConfigPath);
-      finalEnv = { ...finalEnv, ...newConfigEnv };
-    } catch (err) {
-      console.error(`Failed to parse config file: ${err}`);
+    const fullConfigPath = join(finalDirectory, finalConfigPath);
+    
+    if (await Bun.file(fullConfigPath).exists()) {
+      try {
+        const newConfigEnv = await parseConfigFile(fullConfigPath);
+        finalEnv = { ...finalEnv, ...newConfigEnv };
+        console.log(`Loaded config from ${finalConfigPath}`);
+      } catch (err) {
+        console.warn(`Warning: Failed to parse config file ${finalConfigPath}: ${err.message}`);
+      }
+    } else {
+      console.log(`Config file ${finalConfigPath} not found, continuing without it`);
     }
   }
-  
-  const stdoutPath = stdout || join(homePath, ".meps", `${name}-out.txt`);
+    
+  const stdoutPath = stdout || join(homePath, ".bgr", `${name}-out.txt`);
   Bun.write(stdoutPath, '');
-  const stderrPath = stderr || join(homePath, ".meps", `${name}-err.txt`);
+  const stderrPath = stderr || join(homePath, ".bgr", `${name}-err.txt`);
   Bun.write(stderrPath, '');
 
   const newProcess = Bun.spawn(finalCommand.split(" "), {
     env: { ...Bun.env, ...finalEnv },
     cwd: finalDirectory,
     stdout: Bun.file(stdoutPath),
-    stderr: Bun.file(stderrPath)
+    stderr: Bun.file(stderrPath),
   });
 
   newProcess.unref();
@@ -388,7 +394,7 @@ async function hasRunningProcesses(): Promise<boolean> {
 
 async function showHelp() {
   const usage = dedent`
-    ${chalk.bold('meps - Mements Process Manager')}
+    ${chalk.bold('bgr - Bun: Background Runner')}
     ${chalk.gray('═'.repeat(50))}
 
     ${chalk.cyan.bold('Commands:')}
@@ -396,26 +402,26 @@ async function showHelp() {
     1. Process Management
     ${chalk.gray('─'.repeat(30))}
     List all processes:
-    $ meps
+    $ bgr
     
     View process details:
-    $ meps <process-name>
-    $ meps --name <process-name>
+    $ bgr <process-name>
+    $ bgr --name <process-name>
     
     Start new process:
-    $ meps --name <process-name> --directory <path> --command "<command>"
+    $ bgr --name <process-name> --directory <path> --command "<command>"
     
     Restart process:
-    $ meps <process-name> --restart
+    $ bgr <process-name> --restart
     
     Delete process (by name):
-    $ meps --delete <process-name>
+    $ bgr --delete <process-name>
     
     Delete ALL processes:
-    $ meps --nuke
+    $ bgr --nuke
 
     Clean stopped processes:
-    $ meps --clean
+    $ bgr --clean
 
     2. Optional Parameters
     ${chalk.gray('─'.repeat(30))}
@@ -430,23 +436,23 @@ async function showHelp() {
 
     3. Environment
     ${chalk.gray('─'.repeat(30))}
-    Default database location: ~/.meps/meps.sqlite
-    Default log location: ~/.meps/<process-name>-{out|err}.txt
+    Default database location: ~/.bgr/bgr.sqlite
+    Default log location: ~/.bgr/<process-name>-{out|err}.txt
     
     ${chalk.bold('Examples:')}
     Start a Node.js application:
-    $ meps --name myapp --directory ~/projects/myapp --command "npm start"
+    $ bgr --name myapp --directory ~/projects/myapp --command "npm start"
     
     Restart with latest changes:
-    $ meps myapp --restart --fetch
+    $ bgr myapp --restart --fetch
     
     Use custom database:
-    $ meps --db ~/custom/path/mydb.sqlite
+    $ bgr --db ~/custom/path/mydb.sqlite
     
     Start with custom config:
-    $ meps --name myapp --config custom.config.toml --directory ./app
+    $ bgr --name myapp --config custom.config.toml --directory ./app
   `;
-  announce(usage, "MEPS Usage Guide");
+  announce(usage, "BGR Usage Guide");
 }
 
 async function main() {
@@ -552,7 +558,7 @@ async function main() {
         } else {
           announce(
             "No running processes found. Use the following commands to get started:",
-            "Welcome to MEPS"
+            "Welcome to BGR"
           );
           await showHelp();
         }
