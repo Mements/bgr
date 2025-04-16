@@ -20,7 +20,7 @@ BGR is a simple yet powerful process manager that helps you manage long-running 
 
 ```bash
 # Install globally
-npm install -g bgr
+bun install -g bgr
 ```
 
 ### Option 2: Manual Installation

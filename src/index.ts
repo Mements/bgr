@@ -1,3 +1,5 @@
+#!/usr/bin/env bun
+
 import { $, sleep } from "bun";
 import { join } from "path";
 import * as fs from "fs";

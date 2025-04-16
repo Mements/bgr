@@ -1,19 +1,17 @@
 {
   "name": "bgr",
-  "version": "1.0.8",
+  "version": "1.1.1",
   "description": "Bun: Background Runner - A lightweight process manager written in Bun",
   "module": "src/index.ts",
   "type": "module",
   "bin": {
-    "bgr": "./bin/bgr"
+    "bgr": "./src/index.ts"
   },
   "scripts": {
-    "build": "bun build ./src/index.ts --compile --outfile ./bin/bgr",
-    "prepublishOnly": "bun run build"
+    "build": "bun build ./src/index.ts --compile --outfile ./bin/bgr"
   },
   "files": [
-    "bin/bgr",
-    "examples/guard.ts",
+    "src/index.ts",
     "README.md"
   ],
   "keywords": [
