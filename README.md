@@ -4,6 +4,8 @@
 
 BGR is a simple yet powerful process manager that helps you manage long-running processes with ease. It provides process monitoring, environment configuration, and detailed logging capabilities.
 
+<img width="189" alt="Screenshot 2025-04-10 at 07 57 33" src="https://github.com/user-attachments/assets/aef730ca-7d60-423c-bc6b-4a2fa1887faf" />
+
 ## Key Features 🚀
 
 - **Process Management**: Start, stop, and monitor your processes with simple commands
@@ -18,7 +20,7 @@ BGR is a simple yet powerful process manager that helps you manage long-running 
 
 ```bash
 # Install globally
-npm install -g bgr
+bun install -g bgr
 ```
 
 ### Option 2: Manual Installation
