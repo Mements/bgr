@@ -1,6 +1,6 @@
 {
   "name": "bgr",
-  "version": "1.1.1",
+  "version": "2.0.2",
   "description": "Bun: Background Runner - A lightweight process manager written in Bun",
   "module": "src/index.ts",
   "type": "module",
@@ -12,6 +12,7 @@
   },
   "files": [
     "src/index.ts",
+    "src/table.ts",
     "README.md"
   ],
   "keywords": [

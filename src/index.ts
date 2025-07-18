@@ -8,6 +8,7 @@ import { parseArgs } from "util";
 import boxen from "boxen";
 import chalk from "chalk";
 import dedent from "dedent";
+import { renderProcessTable, ProcessTableRow } from "./table";
 
 interface CommandOptions {
   remoteName: string;
@@ -171,11 +172,9 @@ async function handleClean() {
   for (const proc of processes) {
     const running = await isProcessRunning(proc.pid);
     if (!running) {
-      // Delete the process from database
       db.query(`DELETE FROM processes WHERE pid = ?`).run(proc.pid);
       cleanedCount++;
 
-      // Delete associated log files if they exist
       if (fs.existsSync(proc.stdout_path)) {
         fs.unlinkSync(proc.stdout_path);
         deletedLogs++;
@@ -215,23 +214,35 @@ async function handleDeleteAll() {
 
 async function showAll() {
   const processes = db.query(`SELECT * FROM processes`).all() as ProcessRecord[];
-  const status: Record<number, string> = {};
+  const tableData: ProcessTableRow[] = [];
+
   for (const process of processes) {
-    status[process.pid] = await isProcessRunning(process.pid)
-      ? chalk.green.bold("● Running")
-      : chalk.red.bold("○ Stopped");
+    const isRunning = await isProcessRunning(process.pid);
+    const runtime = calculateRuntime(process.timestamp);
+
+    tableData.push({
+      id: process.id,
+      pid: process.pid,
+      name: process.name,
+      command: process.command,
+      workdir: process.workdir,
+      status: isRunning
+        ? chalk.green.bold("● Running")
+        : chalk.red.bold("○ Stopped"),
+      runtime: runtime
+    });
   }
 
-  announce("📋 Currently Monitored Processes", "Process List");
-  console.table(processes.map(process => ({
-    ID: chalk.blue(process.id),
-    PID: chalk.yellow(process.pid),
-    Name: chalk.cyan(process.name),
-    Command: process.command,
-    Directory: chalk.gray(process.workdir),
-    Status: status[process.pid],
-    Runtime: chalk.magenta(calculateRuntime(process.timestamp))
-  })));
+  const tableOutput = renderProcessTable(tableData, {
+    padding: 1,
+    borderStyle: "rounded",
+    showHeaders: true
+  });
+  console.log(tableOutput);
+
+  const runningCount = tableData.filter(p => p.status.includes("Running")).length;
+  const stoppedCount = tableData.filter(p => p.status.includes("Stopped")).length;
+  console.log(chalk.cyan(`Total: ${tableData.length} processes (${chalk.green(`${runningCount} running`)}, ${chalk.red(`${stoppedCount} stopped`)})`));
 }
 
 async function showDetails(name: string) {
@@ -263,7 +274,6 @@ ${Object.entries(envVars)
       .map(([key, value]) => `${chalk.cyan.bold(key)} = ${chalk.yellow(value)}`)
       .join('\n')}
 `;
-
   announce(details, `Process Details: ${name}`);
 }
 
@@ -273,7 +283,7 @@ async function retryDatabaseOperation<T>(operation: () => T, maxRetries = 5, del
       return operation();
     } catch (err: any) {
       if (err?.code === 'SQLITE_BUSY' && attempt < maxRetries) {
-        await sleep(delay * attempt); // Exponential backoff
+        await sleep(delay * attempt);
         continue;
       }
       throw err;
@@ -289,7 +299,6 @@ async function handleRun(options: CommandOptions) {
 
   if (existingProcess) {
     const finalDirectory = directory || existingProcess.workdir;
-
     validateDirectory(finalDirectory);
     $.cwd(finalDirectory);
 
@@ -331,25 +340,38 @@ async function handleRun(options: CommandOptions) {
 
   const finalCommand = command || existingProcess!.command;
   const finalDirectory = directory || (existingProcess?.workdir!);
-
   let finalEnv = env || (existingProcess ? parseEnvString(existingProcess.env) : {});
-  const finalConfigPath = configPath || existingProcess?.configPath;
+
+  let finalConfigPath: string | undefined | null;
+  if (configPath !== undefined) {
+    // 1. A new --config path was explicitly provided. Use it.
+    finalConfigPath = configPath;
+  } else if (existingProcess) {
+    // 2. Restarting an existing process without a new --config. Use the stored path.
+    finalConfigPath = existingProcess.configPath;
+  } else {
+    // 3. Starting a completely new process. Default to .config.toml.
+    finalConfigPath = '.config.toml';
+  }
+
   if (finalConfigPath) {
     const fullConfigPath = join(finalDirectory, finalConfigPath);
-    
+
     if (await Bun.file(fullConfigPath).exists()) {
       try {
         const newConfigEnv = await parseConfigFile(fullConfigPath);
         finalEnv = { ...finalEnv, ...newConfigEnv };
         console.log(`Loaded config from ${finalConfigPath}`);
-      } catch (err) {
+      } catch (err: any) {
         console.warn(`Warning: Failed to parse config file ${finalConfigPath}: ${err.message}`);
       }
     } else {
-      console.log(`Config file ${finalConfigPath} not found, continuing without it`);
+      // Gracefully handle missing config file without crashing.
+      console.log(`Config file '${finalConfigPath}' not found, continuing without it.`);
     }
   }
-    
+  // === FIX END ===
+
   const stdoutPath = stdout || join(homePath, ".bgr", `${name}-out.txt`);
   Bun.write(stdoutPath, '');
   const stderrPath = stderr || join(homePath, ".bgr", `${name}-err.txt`);
@@ -363,13 +385,12 @@ async function handleRun(options: CommandOptions) {
   });
 
   newProcess.unref();
-
   const timestamp = new Date().toISOString();
 
   await retryDatabaseOperation(() =>
     db.query(
       `INSERT INTO processes (pid, workdir, command, name, env, configPath, stdout_path, stderr_path, timestamp) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newProcess.pid,
       finalDirectory,
@@ -427,14 +448,14 @@ async function showHelp() {
 
     2. Optional Parameters
     ${chalk.gray('─'.repeat(30))}
-    --config    <path>     Config file for environment variables (default: .config.toml)
-    --force               Force restart if process is running
-    --fetch              Pull latest git changes before running
-    --stdout    <path>    Custom stdout log path
-    --stderr    <path>    Custom stderr log path
-    --db        <path>    Custom database file path
-    --help               Show this help message
-    --nuke               Delete all processes (use with caution!)
+    --config    <path>      Config file for environment variables (default: .config.toml)
+    --force                 Force restart if process is running
+    --fetch                 Pull latest git changes before running
+    --stdout    <path>      Custom stdout log path
+    --stderr    <path>      Custom stderr log path
+    --db        <path>      Custom database file path
+    --help                  Show this help message
+    --nuke                  Delete all processes (use with caution!)
 
     3. Environment
     ${chalk.gray('─'.repeat(30))}
@@ -503,8 +524,8 @@ async function main() {
   }
 
   const processName = args.positionals[2];
-
   let action: string;
+
   if (args.values.help) {
     action = 'help';
   } else if (args.values.nuke) {
@@ -533,7 +554,7 @@ async function main() {
     directory: args.values.directory,
     command: args.values.command,
     name: processName || args.values.name,
-    configPath: args.values.config || '.config.toml',
+    configPath: args.values.config,
     action,
     force: args.values.force,
     fetch: args.values.fetch,
@@ -543,17 +564,11 @@ async function main() {
     env: {}
   };
 
-  if (options.configPath && options.directory) {
-    const configEnv = await parseConfigFile(join(options.directory, options.configPath));
-    options.env = configEnv;
-  }
-
   try {
     switch (action) {
       case 'help':
         await showHelp();
         break;
-
       case 'show-all':
         if (await hasRunningProcesses()) {
           await showAll();
@@ -565,27 +580,21 @@ async function main() {
           await showHelp();
         }
         break;
-
       case 'show-details':
         await showDetails(options.name!);
         break;
-
       case 'run':
         await handleRun(options);
         break;
-
       case 'delete':
         await handleDelete(options.name!);
         break;
-
       case 'delete-all':
         await handleDeleteAll();
         break;
-
       case 'clean':
         await handleClean();
         break;
-
       default:
         error("Invalid action specified");
     }

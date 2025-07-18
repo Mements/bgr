@@ -1,0 +1,31 @@
+# /etc/systemd/system/bgr-startup.service
+[Unit]
+Description=BGR Process Manager Startup
+After=network.target postgresql.service redis.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=youruser
+Group=yourgroup
+WorkingDirectory=/home/youruser
+
+# Environment variables (optional)
+Environment="NODE_ENV=production"
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+
+# Start all your services
+ExecStart=/bin/bash -c ' \
+    bgr postgres --restart && \
+    bgr api --restart
+'
+
+# Optional: Stop all BGR processes on shutdown
+ExecStop=/bin/bash -c 'bgr --nuke'
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
