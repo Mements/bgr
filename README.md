@@ -1,256 +1,238 @@
-# BGR - Bun: Background Runner
+# BGR: Background Runner
 
-*A lightweight process manager written in Bun*
+[![npm version](https://img.shields.io/npm/v/bgr.svg)](https://www.npmjs.com/package/bgr)
+[![bun](https://img.shields.io/badge/powered%20by-bun-F7A41D)](https://bun.sh/)
 
-BGR is a simple yet powerful process manager that helps you manage long-running processes with ease. It provides process monitoring, environment configuration, and detailed logging capabilities.
-
-<img width="189" alt="Screenshot 2025-04-10 at 07 57 33" src="https://github.com/user-attachments/assets/aef730ca-7d60-423c-bc6b-4a2fa1887faf" />
-
-## Key Features 🚀
-
-- **Process Management**: Start, stop, and monitor your processes with simple commands
-- **Environment Configuration**: Support for environment variables via config files
-- **Detailed Logging**: Separate stdout and stderr logs for each process
-- **SQLite Storage**: Reliable process state tracking using SQLite database
-- **Zero Runtime Dependencies**: Only requires Bun to run
+A process manager built with Bun for managing long-running processes.
 
 ## Installation
 
-### Option 1: Install via npm (Recommended)
-
-```bash
-# Install globally
-bun install -g bgr
-```
-
-### Option 2: Manual Installation
-
-1. Clone and install:
-```bash
-git clone https://github.com/7flash/bgr.git $HOME/bgr
-cd bgr && bun install
-```
-
-2. Compile bgr:
-```bash
-bun build ./src/index.ts --compile --outfile ./bin/bgr
-```
-
-3. Add to your PATH (in ~/.bashrc):
-```bash
-export PATH="$HOME/bgr/bin:$PATH"
-```
-
 ### Prerequisites
 
-BGR requires [Bun](https://bun.sh/) to be installed on your system:
+- [Bun](https://bun.sh) v1.0.0 or higher
+- Git (for repository features)
+
+### Install
 
 ```bash
-# Install Bun if not already installed
-curl -fsSL https://bun.sh/install | bash
+bun install -g bgr@latest
 ```
 
-## Usage 
-
-### Basic Commands
+### Development
 
 ```bash
-# Show all processes
+git clone https://github.com/7flash/bgr.git
+cd bgr
+bun install
+bun link
+```
+
+After linking, `bgr` will be available globally.
+
+## Usage
+
+### Start a process
+
+```bash
+bgr --name myapp --directory /path/to/project --command "npm start"
+```
+
+### List processes
+
+```bash
 bgr
-
-# View specific process details
-bgr <process-name>
-bgr --name <process-name>
-
-# Start new process
-bgr --name myapp --directory ~/projects/myapp --command "npm start"
-
-# Restart process
-bgr <process-name> --restart
-
-# Delete process
-bgr --delete <process-name>
 ```
 
-### Optional Parameters
+Output:
+```
+╭─────┬────────┬──────────┬─────────────────┬──────────────────┬───────────┬──────────╮
+│ ID  │ PID    │ Name     │ Command         │ Directory        │ Status    │ Runtime  │
+├─────┼────────┼──────────┼─────────────────┼──────────────────┼───────────┼──────────┤
+│ 1   │ 12345  │ myapp    │ npm start       │ /home/user/app   │ ● Running │ 45 min   │
+│ 2   │ 23456  │ api      │ bun server.ts   │ /home/user/api   │ ○ Stopped │ 0 min    │
+╰─────┴────────┴──────────┴─────────────────┴──────────────────┴───────────┴──────────╯
+Total: 2 processes (1 running, 1 stopped)
+```
+
+### View process details
 
 ```bash
---config <path>      Config file for environment variables (default: .config.toml)
---force              Force restart if process is running
---fetch              Pull latest git changes before running
---stdout <path>      Custom stdout log path
---stderr <path>      Custom stderr log path
---db <path>          Custom database file path
---help               Show help message
+bgr myapp
 ```
 
-### Environment Configuration
+Output:
+```
+╭────────── Process Details: myapp ──────────╮
+│                                            │
+│ Process Details:                           │
+│ ══════════════════════════════════════════ │
+│ Name: myapp                                │
+│ PID: 12345                                 │
+│ Status: ● Running                          │
+│ Runtime: 45 minutes                        │
+│ Working Directory: /home/user/app          │
+│ Command: npm start                         │
+│ Config Path: .config.toml                  │
+│ Stdout Path: /home/.bgr/myapp-out.txt      │
+│ Stderr Path: /home/.bgr/myapp-err.txt      │
+│                                            │
+│ Environment Variables:                     │
+│ ══════════════════════════════════════════ │
+│ SERVER_PORT = 3000                         │
+│ DATABASE_URL = postgres://localhost/mydb   │
+│                                            │
+╰────────────────────────────────────────────╯
+```
 
-BGR supports environment variables through config files. Create a `.config.toml` file in your project directory:
+### Restart a process
+
+```bash
+bgr myapp --restart
+```
+
+### Delete a process
+
+```bash
+bgr --delete myapp
+```
+
+### Clean stopped processes
+
+```bash
+bgr --clean
+```
+
+### Delete all processes
+
+```bash
+bgr --nuke
+```
+
+## Commands Reference
+
+| Command | Description |
+|---------|-------------|
+| `bgr` | List all processes |
+| `bgr <name>` | Show process details |
+| `bgr --name <name> --directory <path> --command "<cmd>"` | Start new process |
+| `bgr <name> --restart` | Restart process |
+| `bgr --delete <name>` | Delete process |
+| `bgr --clean` | Remove stopped processes |
+| `bgr --nuke` | Delete all processes |
+| `bgr --help` | Show help |
+
+## Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--config <path>` | Config file path | `.config.toml` |
+| `--force` | Force restart running process | `false` |
+| `--fetch` | Pull latest git changes | `false` |
+| `--stdout <path>` | Custom stdout log path | `~/.bgr/<name>-out.txt` |
+| `--stderr <path>` | Custom stderr log path | `~/.bgr/<name>-err.txt` |
+| `--db <path>` | Custom database path | `~/.bgr/bgr.sqlite` |
+
+## Configuration Files
+
+BGR reads TOML files for environment variables:
 
 ```toml
-[app]
+# .config.toml
+[server]
 port = 3000
-host = "localhost"
+host = "0.0.0.0"
 
 [database]
-url = "postgres://localhost:5432"
+url = "postgresql://localhost/myapp"
+pool_size = 10
 ```
 
-BGR will automatically load and format these configurations as environment variables:
+These become environment variables:
+- `SERVER_PORT=3000`
+- `SERVER_HOST=0.0.0.0`
+- `DATABASE_URL=postgresql://localhost/myapp`
+- `DATABASE_POOL_SIZE=10`
 
-```
-APP_PORT=3000
-APP_HOST=localhost
-DATABASE_URL=postgres://localhost:5432
-```
+## Examples
 
-### Examples
+### Development setup
 
 ```bash
-# Start a Node.js application
-bgr --name myapp --directory ~/projects/myapp --command "npm start"
+# Frontend
+bgr --name frontend --directory ./frontend --command "npm run dev"
 
-# Start with custom config
-bgr --name myapp --config custom.config.toml --directory ./app
+# Backend
+bgr --name backend --directory ./backend --command "bun run --watch server.ts"
 
-# Restart process with force
-bgr myapp --restart --force
-
-# Use custom database location
-bgr --db ~/custom/path/mydb.sqlite
+# Database
+bgr --name postgres --directory . --command "docker run -p 5432:5432 postgres:15"
 ```
 
-## File Locations
-
-- **Database**: `~/.bgr/bgr.sqlite`
-- **Logs**: `~/.bgr/<process-name>-out.txt` and `~/.bgr/<process-name>-err.txt`
-
-## Extending BGR
-
-BGR is designed to be simple and extensible. Here's an example of how to create a guard script to monitor and automatically restart processes:
-
-### Example: Process Guard Script
-
-Create a file called `guard.ts`:
-
-```typescript
-#!/usr/bin/env bun
-/**
- * Simple Guard Script for BGR
- * This script monitors a specific process and automatically restarts it if it stops
- * 
- * Usage: bun guard.ts <process-name> [check-interval-seconds]
- */
-
-import { $, sleep } from "bun";
-
-async function main() {
-  // Parse command line arguments
-  const processName = process.argv[2];
-  const checkInterval = parseInt(process.argv[3] || "30") * 1000; // Default 30 seconds
-  
-  if (!processName) {
-    console.error("❌ Error: Process name is required");
-    console.error("Usage: bun guard.ts <process-name> [check-interval-seconds]");
-    process.exit(1);
-  }
-  
-  console.log(`🔍 Starting guard for process "${processName}"`);
-  console.log(`⏱️  Checking every ${checkInterval/1000} seconds`);
-  
-  // Main monitoring loop
-  while (true) {
-    try {
-      // Check process status using bgr
-      const result = await $`bgr ${processName}`.quiet().nothrow();
-      
-      // Check if the process is not running
-      if (result.stdout.includes("○ Stopped") || result.exitCode !== 0) {
-        console.log(`⚠️ Process "${processName}" is not running! Attempting to restart...`);
-        
-        // Restart the process
-        const restartResult = await $`bgr ${processName} --restart --force`.nothrow();
-        
-        if (restartResult.exitCode === 0) {
-          console.log(`✅ Successfully restarted "${processName}"`);
-        } else {
-          console.error(`❌ Failed to restart "${processName}"`);
-          console.error(restartResult.stderr);
-        }
-      } else {
-        console.log(`✅ Process "${processName}" is running (${new Date().toLocaleTimeString()})`);
-      }
-    } catch (error) {
-      console.error(`❌ Error checking process: ${error.message}`);
-    }
-    
-    // Wait for the next check interval
-    await sleep(checkInterval);
-  }
-}
-
-main().catch(err => {
-  console.error("🚨 Fatal error:", err);
-  process.exit(1);
-});
-```
-
-To use this guard script:
+### Production deployment
 
 ```bash
-# Make the script executable
-chmod +x guard.ts
-
-# Start monitoring a process (checks every 30 seconds)
-bun guard.ts my-service
-
-# Start monitoring with a different check interval (e.g., 10 seconds)
-bun guard.ts my-service 10
+# Start with automatic git pull
+bgr --name production-api \
+    --directory /var/www/api \
+    --command "bun run src/server.ts" \
+    --config production.toml \
+    --fetch
 ```
 
-You can run multiple guard scripts to monitor different services, or extend the script to monitor multiple services at once.
+## Safe Restarts
 
-## Running Bun Applications as Daemons
+For automatic process monitoring and restart, see the [guard example](./examples/guard.ts).
 
-BGR is an excellent choice for running Bun applications as daemons. Here's how:
+## Safe Reboots
+
+While BGR excellently manages your processes during runtime, you'll want them to restart automatically after system reboots.
+
+1) Create systemd service:
 
 ```bash
-# Start a Bun application as a daemon
-bgr --name my-bun-app --directory ~/projects/my-bun-app --command "bun index.ts"
+sudo nano /etc/systemd/system/bgr-startup.service
 ```
 
-For maximum reliability, you can combine BGR with a guard script:
+Example: [bgr-startup.service](./examples/bgr-startup.service).
+
+2) Enable and start:
 
 ```bash
-# First start your Bun application
-bgr --name my-bun-app --directory ~/projects/my-bun-app --command "bun index.ts"
-
-# Then start a guard for it (also as a managed process)
-bgr --name guard-my-bun-app --directory ~/projects/my-bun-app --command "bun guard.ts my-bun-app"
+sudo systemctl enable bgr-myapp.service
+sudo systemctl start bgr-myapp.service
 ```
 
-## Comparison with PM2
+## File Structure
 
-While PM2 is a mature process manager for Node.js applications, BGR offers significant advantages for modern development workflows:
+```
+~/.bgr/
+├── bgr.sqlite          # Process database
+├── myapp-out.txt       # stdout logs
+└── myapp-err.txt       # stderr logs
+```
 
-### The BGR Advantage
+## Debugging
 
-- **Bun-Native Performance**
-  - Blazing fast startup (up to 30x faster than Node.js-based process managers)
-  - Lower memory footprint (typically 60-80% less memory usage)
-  - Modern TypeScript Support, Native ESM
+View process logs:
 
-- **Lightweight Architecture**
-  - No daemon process that can become a single point of failure
-  - Independent process tracking with SQLite for reliable state persistence
-  - Zero runtime dependencies beyond Bun itself
+```bash
+# stdout
+tail -f ~/.bgr/myapp-out.txt
 
-- **Developer-Friendly Experience**
-  - Zero-configuration defaults that just work
-  - Intuitive CLI with modern design patterns
-  - Extensible with simple Bun scripts
+# stderr
+tail -f ~/.bgr/myapp-err.txt
+```
 
-## License
+Check database:
 
-This project is licensed under the MIT License.
+```bash
+sqlite3 ~/.bgr/bgr.sqlite "SELECT * FROM processes;"
+```
+
+## Testing
+
+Run the test suite:
+
+```bash
+bun test
+```
