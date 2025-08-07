@@ -377,7 +377,7 @@ async function handleRun(options: CommandOptions) {
   const stderrPath = stderr || join(homePath, ".bgr", `${name}-err.txt`);
   Bun.write(stderrPath, '');
 
-  const newProcess = Bun.spawn(finalCommand.split(" "), {
+  const newProcess = Bun.spawn(["sh", "-c", finalCommand], {
     env: { ...Bun.env, ...finalEnv },
     cwd: finalDirectory,
     stdout: Bun.file(stdoutPath),
