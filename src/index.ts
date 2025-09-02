@@ -9,6 +9,7 @@ import boxen from "boxen";
 import chalk from "chalk";
 import dedent from "dedent";
 import { renderProcessTable, ProcessTableRow } from "./table";
+import { getVersion } from './version.macro.ts' with { type: 'macro' };
 
 interface CommandOptions {
   remoteName: string;
@@ -127,15 +128,27 @@ function formatEnvKey(key: string): string {
 
 function flattenConfig(obj: any, prefix = ''): Record<string, string> {
   return Object.keys(obj).reduce((acc: Record<string, string>, key: string) => {
-    const fullKey = prefix ? `${prefix}_${key}` : key;
-    if (typeof obj[key] === 'object' && obj[key] !== null && !Array.isArray(obj[key])) {
-      Object.assign(acc, flattenConfig(obj[key], fullKey));
+    const value = obj[key];
+    const newPrefix = prefix ? `${prefix}.${key}` : key;
+
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => {
+        const indexedPrefix = `${newPrefix}.${index}`;
+        if (typeof item === 'object' && item !== null) {
+          Object.assign(acc, flattenConfig(item, indexedPrefix));
+        } else {
+          acc[formatEnvKey(indexedPrefix)] = String(item);
+        }
+      });
+    } else if (typeof value === 'object' && value !== null) {
+      Object.assign(acc, flattenConfig(value, newPrefix));
     } else {
-      acc[formatEnvKey(fullKey)] = Array.isArray(obj[key]) ? obj[key].join(',') : String(obj[key]);
+      acc[formatEnvKey(newPrefix)] = String(value);
     }
     return acc;
   }, {});
 }
+
 
 async function parseConfigFile(configPath: string): Promise<Record<string, string>> {
   const parsedConfig = await import(configPath).then(m => m.default);
@@ -212,20 +225,44 @@ async function handleDeleteAll() {
   announce("All processes have been stopped and deleted.", "Delete All");
 }
 
-async function showAll() {
+async function showAll(jsonGroups?: string[]) {
   const processes = db.query(`SELECT * FROM processes`).all() as ProcessRecord[];
+  
+  if (jsonGroups) {
+    // JSON output with filtered env variables
+    const jsonData: any[] = [];
+    
+    for (const proc of processes) {
+      if (!jsonGroups.includes(proc.name)) continue;
+      
+      const isRunning = await isProcessRunning(proc.pid);
+      const envVars = parseEnvString(proc.env);
+      
+      jsonData.push({
+        pid: proc.pid,
+        name: proc.name,
+        status: isRunning ? "running" : "stopped",
+        env: envVars
+      });
+    }
+    
+    console.log(JSON.stringify(jsonData, null, 2));
+    return;
+  }
+
+  // Table output
   const tableData: ProcessTableRow[] = [];
 
-  for (const process of processes) {
-    const isRunning = await isProcessRunning(process.pid);
-    const runtime = calculateRuntime(process.timestamp);
+  for (const proc of processes) {
+    const isRunning = await isProcessRunning(proc.pid);
+    const runtime = calculateRuntime(proc.timestamp);
 
     tableData.push({
-      id: process.id,
-      pid: process.pid,
-      name: process.name,
-      command: process.command,
-      workdir: process.workdir,
+      id: proc.id,
+      pid: proc.pid,
+      name: proc.name,
+      command: proc.command,
+      workdir: proc.workdir,
       status: isRunning
         ? chalk.green.bold("● Running")
         : chalk.red.bold("○ Stopped"),
@@ -245,28 +282,91 @@ async function showAll() {
   console.log(chalk.cyan(`Total: ${tableData.length} processes (${chalk.green(`${runningCount} running`)}, ${chalk.red(`${stoppedCount} stopped`)})`));
 }
 
-async function showDetails(name: string) {
-  const process = db.query(`SELECT * FROM processes WHERE name = ? ORDER BY timestamp DESC LIMIT 1`).get(name) as ProcessRecord;
-  if (!process) {
+async function showLogs(name: string, logType: 'stdout' | 'stderr' | 'both' = 'both', lines?: number) {
+  const proc = db.query(`SELECT * FROM processes WHERE name = ? ORDER BY timestamp DESC LIMIT 1`).get(name) as ProcessRecord;
+  if (!proc) {
     error(`No process found named '${name}'`);
   }
 
-  const isRunning = await isProcessRunning(process.pid);
-  const runtime = calculateRuntime(process.timestamp);
-  const envVars = parseEnvString(process.env);
+  const homePath = (await $`echo $HOME`.text()).trim();
+  const logsDir = join(homePath, ".bgr");
+  
+  if (logType === 'both' || logType === 'stdout') {
+    console.log(chalk.green.bold(`📄 Stdout logs for ${name}:`));
+    console.log(chalk.gray('═'.repeat(50)));
+    
+    if (fs.existsSync(proc.stdout_path)) {
+      try {
+        const tailCmd = lines ? `tail -n ${lines} "${proc.stdout_path}"` : `cat "${proc.stdout_path}"`;
+        const output = await $`sh -c ${tailCmd}`.text();
+        console.log(output || chalk.gray('(no output)'));
+      } catch (error) {
+        console.log(chalk.red(`Error reading stdout: ${error}`));
+      }
+    } else {
+      console.log(chalk.gray('(log file not found)'));
+    }
+    
+    if (logType === 'both') {
+      console.log('\n');
+    }
+  }
+  
+  if (logType === 'both' || logType === 'stderr') {
+    console.log(chalk.red.bold(`📄 Stderr logs for ${name}:`));
+    console.log(chalk.gray('═'.repeat(50)));
+    
+    if (fs.existsSync(proc.stderr_path)) {
+      try {
+        const tailCmd = lines ? `tail -n ${lines} "${proc.stderr_path}"` : `cat "${proc.stderr_path}"`;
+        const output = await $`sh -c ${tailCmd}`.text();
+        console.log(output || chalk.gray('(no errors)'));
+      } catch (error) {
+        console.log(chalk.red(`Error reading stderr: ${error}`));
+      }
+    } else {
+      console.log(chalk.gray('(log file not found)'));
+    }
+  }
+  
+  // List backup logs
+  console.log(`\n${chalk.cyan.bold('📁 Available backup logs:')}`);
+  console.log(chalk.gray('═'.repeat(50)));
+  
+  try {
+    const backupFiles = await $`ls -la "${logsDir}" | grep ${name}`.nothrow().text();
+    if (backupFiles.trim()) {
+      console.log(backupFiles);
+    } else {
+      console.log(chalk.gray('(no backup logs found)'));
+    }
+  } catch (error) {
+    console.log(chalk.gray('(no backup logs found)'));
+  }
+}
+
+async function showDetails(name: string) {
+  const proc = db.query(`SELECT * FROM processes WHERE name = ? ORDER BY timestamp DESC LIMIT 1`).get(name) as ProcessRecord;
+  if (!proc) {
+    error(`No process found named '${name}'`);
+  }
+
+  const isRunning = await isProcessRunning(proc.pid);
+  const runtime = calculateRuntime(proc.timestamp);
+  const envVars = parseEnvString(proc.env);
 
   const details = `
 ${chalk.bold('Process Details:')}
 ${chalk.gray('═'.repeat(50))}
-${chalk.cyan.bold('Name:')} ${process.name}
-${chalk.yellow.bold('PID:')} ${process.pid}
+${chalk.cyan.bold('Name:')} ${proc.name}
+${chalk.yellow.bold('PID:')} ${proc.pid}
 ${chalk.bold('Status:')} ${isRunning ? chalk.green.bold("● Running") : chalk.red.bold("○ Stopped")}
 ${chalk.magenta.bold('Runtime:')} ${runtime}
-${chalk.blue.bold('Working Directory:')} ${process.workdir}
-${chalk.white.bold('Command:')} ${process.command}
-${chalk.gray.bold('Config Path:')} ${process.configPath}
-${chalk.green.bold('Stdout Path:')} ${process.stdout_path}
-${chalk.red.bold('Stderr Path:')} ${process.stderr_path}
+${chalk.blue.bold('Working Directory:')} ${proc.workdir}
+${chalk.white.bold('Command:')} ${proc.command}
+${chalk.gray.bold('Config Path:')} ${proc.configPath}
+${chalk.green.bold('Stdout Path:')} ${proc.stdout_path}
+${chalk.red.bold('Stderr Path:')} ${proc.stderr_path}
 
 ${chalk.bold('🔧 Environment Variables:')}
 ${chalk.gray('═'.repeat(50))}
@@ -344,13 +444,10 @@ async function handleRun(options: CommandOptions) {
 
   let finalConfigPath: string | undefined | null;
   if (configPath !== undefined) {
-    // 1. A new --config path was explicitly provided. Use it.
     finalConfigPath = configPath;
   } else if (existingProcess) {
-    // 2. Restarting an existing process without a new --config. Use the stored path.
     finalConfigPath = existingProcess.configPath;
   } else {
-    // 3. Starting a completely new process. Default to .config.toml.
     finalConfigPath = '.config.toml';
   }
 
@@ -366,11 +463,9 @@ async function handleRun(options: CommandOptions) {
         console.warn(`Warning: Failed to parse config file ${finalConfigPath}: ${err.message}`);
       }
     } else {
-      // Gracefully handle missing config file without crashing.
       console.log(`Config file '${finalConfigPath}' not found, continuing without it.`);
     }
   }
-  // === FIX END ===
 
   const stdoutPath = stdout || join(homePath, ".bgr", `${name}-out.txt`);
   Bun.write(stdoutPath, '');
@@ -390,7 +485,7 @@ async function handleRun(options: CommandOptions) {
   await retryDatabaseOperation(() =>
     db.query(
       `INSERT INTO processes (pid, workdir, command, name, env, configPath, stdout_path, stderr_path, timestamp) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newProcess.pid,
       finalDirectory,
@@ -415,6 +510,11 @@ async function hasRunningProcesses(): Promise<boolean> {
   return processes.length > 0;
 }
 
+async function showVersion() {
+  // getVersion() is replaced by the actual version string at build time
+  announce(`bgr version: ${await getVersion()}`, "Version");
+}
+
 async function showHelp() {
   const usage = dedent`
     ${chalk.bold('bgr - Bun: Background Runner')}
@@ -427,9 +527,16 @@ async function showHelp() {
     List all processes:
     $ bgr
     
+    List processes in JSON format (comma-separated process names):
+    $ bgr --json bun,bgr
+    
     View process details:
     $ bgr <process-name>
     $ bgr --name <process-name>
+    
+    View process logs:
+    $ bgr <process-name> --logs
+    $ bgr <process-name> --logs --log-stdout --lines 50
     
     Start new process:
     $ bgr --name <process-name> --directory <path> --command "<command>"
@@ -448,14 +555,20 @@ async function showHelp() {
 
     2. Optional Parameters
     ${chalk.gray('─'.repeat(30))}
-    --config    <path>      Config file for environment variables (default: .config.toml)
-    --force                 Force restart if process is running
-    --fetch                 Pull latest git changes before running
-    --stdout    <path>      Custom stdout log path
-    --stderr    <path>      Custom stderr log path
-    --db        <path>      Custom database file path
-    --help                  Show this help message
-    --nuke                  Delete all processes (use with caution!)
+    --version     Show the installed version of bgr
+    --config      <path>      Config file for environment variables (default: .config.toml)
+    --force                   Force restart if process is running
+    --fetch                   Pull latest git changes before running
+    --stdout      <path>      Custom stdout log path
+    --stderr      <path>      Custom stderr log path
+    --db          <path>      Custom database file path
+    --json        <groups>    Output JSON with specified process groups
+    --logs                    Show process logs
+    --log-stdout              Show only stdout logs
+    --log-stderr              Show only stderr logs
+    --lines       <number>    Number of lines to show from logs
+    --help                    Show this help message
+    --nuke                    Delete all processes (use with caution!)
 
     3. Environment
     ${chalk.gray('─'.repeat(30))}
@@ -469,11 +582,8 @@ async function showHelp() {
     Restart with latest changes:
     $ bgr myapp --restart --fetch
     
-    Use custom database:
-    $ bgr --db ~/custom/path/mydb.sqlite
-    
-    Start with custom config:
-    $ bgr --name myapp --config custom.config.toml --directory ./app
+    Check the version:
+    $ bgr --version
   `;
   announce(usage, "BGR Usage Guide");
 }
@@ -492,11 +602,17 @@ async function main() {
       stdout: { type: "string" },
       stderr: { type: "string" },
       help: { type: "boolean" },
+      version: { type: "boolean" },
       restart: { type: "boolean" },
       delete: { type: "boolean" },
       db: { type: "string" },
       nuke: { type: "boolean" },
       clean: { type: "boolean" },
+      json: { type: "string" },
+      logs: { type: "boolean" },
+      "log-stdout": { type: "boolean" },
+      "log-stderr": { type: "boolean" },
+      lines: { type: "string" },
     },
     allowPositionals: true
   });
@@ -528,6 +644,8 @@ async function main() {
 
   if (args.values.help) {
     action = 'help';
+  } else if (args.values.version) {
+    action = 'version';
   } else if (args.values.nuke) {
     action = 'delete-all';
   } else if (args.values.clean) {
@@ -543,6 +661,8 @@ async function main() {
     args.values.force = true;
   } else if (args.values.command) {
     action = 'run';
+  } else if (args.values.logs && (processName || args.values.name)) {
+    action = 'logs';
   } else if (processName || args.values.name) {
     action = 'show-details';
   } else {
@@ -569,8 +689,14 @@ async function main() {
       case 'help':
         await showHelp();
         break;
+      case 'version':
+        await showVersion();
+        break;
       case 'show-all':
-        if (await hasRunningProcesses()) {
+        if (args.values.json) {
+          const jsonGroups = args.values.json.split(',').map(g => g.trim());
+          await showAll(jsonGroups);
+        } else if (await hasRunningProcesses()) {
           await showAll();
         } else {
           announce(
@@ -582,6 +708,12 @@ async function main() {
         break;
       case 'show-details':
         await showDetails(options.name!);
+        break;
+      case 'logs':
+        const logType = args.values['log-stdout'] ? 'stdout' : 
+                       args.values['log-stderr'] ? 'stderr' : 'both';
+        const lineCount = args.values.lines ? parseInt(args.values.lines) : undefined;
+        await showLogs(options.name!, logType, lineCount);
         break;
       case 'run':
         await handleRun(options);
