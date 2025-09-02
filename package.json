@@ -1,18 +1,17 @@
 {
   "name": "bgr",
-  "version": "2.0.2",
+  "version": "2.3.0",
   "description": "Bun: Background Runner - A lightweight process manager written in Bun",
-  "module": "src/index.ts",
   "type": "module",
   "bin": {
-    "bgr": "./src/index.ts"
+    "bgr": "./dist/index.js"
   },
   "scripts": {
-    "build": "bun build ./src/index.ts --compile --outfile ./bin/bgr"
+    "build": "bun run ./src/build.ts",
+    "test": "bun test"
   },
   "files": [
-    "src/index.ts",
-    "src/table.ts",
+    "dist",
     "README.md"
   ],
   "keywords": [
@@ -31,7 +30,7 @@
     "url": "https://github.com/7flash/bgr.git"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "bun-types": "latest"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"
