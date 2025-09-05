@@ -225,27 +225,32 @@ async function handleDeleteAll() {
   announce("All processes have been stopped and deleted.", "Delete All");
 }
 
-async function showAll(jsonGroups?: string[]) {
+async function showAll(opts?: { json?: boolean; filter?: string }) {
   const processes = db.query(`SELECT * FROM processes`).all() as ProcessRecord[];
-  
-  if (jsonGroups) {
+
+  // Apply filter by env.BGR_GROUP if provided
+  const filtered = processes.filter((proc) => {
+    if (!opts?.filter) return true;
+    const envVars = parseEnvString(proc.env);
+    return envVars["BGR_GROUP"] === opts.filter;
+  });
+
+  if (opts?.json) {
     // JSON output with filtered env variables
     const jsonData: any[] = [];
-    
-    for (const proc of processes) {
-      if (!jsonGroups.includes(proc.name)) continue;
-      
+
+    for (const proc of filtered) {
       const isRunning = await isProcessRunning(proc.pid);
       const envVars = parseEnvString(proc.env);
-      
+
       jsonData.push({
         pid: proc.pid,
         name: proc.name,
         status: isRunning ? "running" : "stopped",
-        env: envVars
+        env: envVars,
       });
     }
-    
+
     console.log(JSON.stringify(jsonData, null, 2));
     return;
   }
@@ -253,7 +258,7 @@ async function showAll(jsonGroups?: string[]) {
   // Table output
   const tableData: ProcessTableRow[] = [];
 
-  for (const proc of processes) {
+  for (const proc of filtered) {
     const isRunning = await isProcessRunning(proc.pid);
     const runtime = calculateRuntime(proc.timestamp);
 
@@ -266,20 +271,33 @@ async function showAll(jsonGroups?: string[]) {
       status: isRunning
         ? chalk.green.bold("● Running")
         : chalk.red.bold("○ Stopped"),
-      runtime: runtime
+      runtime: runtime,
     });
+  }
+
+  if (tableData.length === 0) {
+    if (opts?.filter) {
+      announce(`No processes matched filter BGR_GROUP='${opts.filter}'.`, "No Matches");
+    } else {
+      announce("No processes found.", "Empty");
+    }
+    return;
   }
 
   const tableOutput = renderProcessTable(tableData, {
     padding: 1,
     borderStyle: "rounded",
-    showHeaders: true
+    showHeaders: true,
   });
   console.log(tableOutput);
 
-  const runningCount = tableData.filter(p => p.status.includes("Running")).length;
-  const stoppedCount = tableData.filter(p => p.status.includes("Stopped")).length;
-  console.log(chalk.cyan(`Total: ${tableData.length} processes (${chalk.green(`${runningCount} running`)}, ${chalk.red(`${stoppedCount} stopped`)})`));
+  const runningCount = tableData.filter((p) => p.status.includes("Running")).length;
+  const stoppedCount = tableData.filter((p) => p.status.includes("Stopped")).length;
+  console.log(
+    chalk.cyan(
+      `Total: ${tableData.length} processes (${chalk.green(`${runningCount} running`)}, ${chalk.red(`${stoppedCount} stopped`)})`
+    )
+  );
 }
 
 async function showLogs(name: string, logType: 'stdout' | 'stderr' | 'both' = 'both', lines?: number) {
@@ -521,32 +539,36 @@ async function showHelp() {
     ${chalk.gray('═'.repeat(50))}
 
     ${chalk.cyan.bold('Commands:')}
-    
+
     1. Process Management
     ${chalk.gray('─'.repeat(30))}
     List all processes:
     $ bgr
-    
-    List processes in JSON format (comma-separated process names):
-    $ bgr --json bun,bgr
-    
+
+    List processes filtered by group (matches env BGR_GROUP):
+    $ bgr --filter <group-name>
+
+    List processes in JSON format (optionally filtered by group):
+    $ bgr --json
+    $ bgr --json --filter <group-name>
+
     View process details:
     $ bgr <process-name>
     $ bgr --name <process-name>
-    
+
     View process logs:
     $ bgr <process-name> --logs
     $ bgr <process-name> --logs --log-stdout --lines 50
-    
+
     Start new process:
     $ bgr --name <process-name> --directory <path> --command "<command>"
-    
+
     Restart process:
     $ bgr <process-name> --restart
-    
+
     Delete process (by name):
     $ bgr --delete <process-name>
-    
+
     Delete ALL processes:
     $ bgr --nuke
 
@@ -562,7 +584,8 @@ async function showHelp() {
     --stdout      <path>      Custom stdout log path
     --stderr      <path>      Custom stderr log path
     --db          <path>      Custom database file path
-    --json        <groups>    Output JSON with specified process groups
+    --json                    Output in JSON format
+    --filter      <group>     Filter instances where env BGR_GROUP equals <group>
     --logs                    Show process logs
     --log-stdout              Show only stdout logs
     --log-stderr              Show only stderr logs
@@ -574,14 +597,14 @@ async function showHelp() {
     ${chalk.gray('─'.repeat(30))}
     Default database location: ~/.bgr/bgr.sqlite
     Default log location: ~/.bgr/<process-name>-{out|err}.txt
-    
+
     ${chalk.bold('Examples:')}
     Start a Node.js application:
     $ bgr --name myapp --directory ~/projects/myapp --command "npm start"
-    
+
     Restart with latest changes:
     $ bgr myapp --restart --fetch
-    
+
     Check the version:
     $ bgr --version
   `;
@@ -608,11 +631,12 @@ async function main() {
       db: { type: "string" },
       nuke: { type: "boolean" },
       clean: { type: "boolean" },
-      json: { type: "string" },
+      json: { type: "boolean" },
       logs: { type: "boolean" },
       "log-stdout": { type: "boolean" },
       "log-stderr": { type: "boolean" },
       lines: { type: "string" },
+      filter: { type: "string" },
     },
     allowPositionals: true
   });
@@ -693,14 +717,12 @@ async function main() {
         await showVersion();
         break;
       case 'show-all':
-        if (args.values.json) {
-          const jsonGroups = args.values.json.split(',').map(g => g.trim());
-          await showAll(jsonGroups);
-        } else if (await hasRunningProcesses()) {
-          await showAll();
+        if (await hasRunningProcesses()) {
+          await showAll({ json: !!args.values.json, filter: args.values.filter });
         } else {
           announce(
-            "No running processes found. Use the following commands to get started:",
+            `No running processes found. Use the following commands to get started:
+Tip: you can start processes with BGR_GROUP set to group them, e.g. BGR_GROUP=api bgr ...`,
             "Welcome to BGR"
           );
           await showHelp();
