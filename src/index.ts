@@ -122,6 +122,21 @@ async function terminateProcess(pid: number): Promise<void> {
   await $`kill ${pid}`.nothrow();
 }
 
+async function killProcessOnPort(port: number): Promise<void> {
+  try {
+    const result = await $`lsof -ti :${port}`.nothrow().text();
+    if (result.trim()) {
+      const pids = result.trim().split('\n').filter(pid => pid);
+      for (const pid of pids) {
+        await $`kill ${pid}`.nothrow();
+        console.log(`Killed process ${pid} using port ${port}`);
+      }
+    }
+  } catch (error) {
+    console.warn(`Warning: Could not check or kill process on port ${port}: ${error}`);
+  }
+}
+
 function formatEnvKey(key: string): string {
   return key.toUpperCase().replace(/\./g, '_');
 }
@@ -482,6 +497,17 @@ async function handleRun(options: CommandOptions) {
       }
     } else {
       console.log(`Config file '${finalConfigPath}' not found, continuing without it.`);
+    }
+  }
+
+  // BUN_PORT kill logic when force flag is used
+  if (force) {
+    const bunPort = finalEnv.BUN_PORT || process.env.BUN_PORT;
+    if (bunPort) {
+      const port = parseInt(bunPort.toString());
+      if (!isNaN(port)) {
+        await killProcessOnPort(port);
+      }
     }
   }
 

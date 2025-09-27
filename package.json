@@ -1,6 +1,6 @@
 {
   "name": "bgr",
-  "version": "2.4.1",
+  "version": "2.5.0",
   "description": "Bun: Background Runner - A lightweight process manager written in Bun",
   "type": "module",
   "bin": {
