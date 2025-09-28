@@ -1,3 +1,57 @@
+## Task
+Implement a --watch flag that uses Bun's watch() API to watch for file changes in the directory of the running process and automatically restart the process on changes. The implementation should also support showing -err and -out logs while watching.
+
+## Context
+Based on the existing codebase:
+
+### Current Structure:
+- Main entry point: `src/index.ts`
+- Command parsing uses `parseArgs` from Bun
+- Process management functions: `handleRun`, `showAll`, `showLogs`, etc.
+- Database operations use SQLite through Bun:sqlite
+- Logging system writes stdout/stderr to files
+- Process spawning uses `Bun.spawn` with environment variables
+
+### Key Functions and Patterns:
+- `handleRun(options)` - Creates and manages process execution (lines 428-550)
+- `showLogs(name, logType, lines?)` - Displays process logs (lines 318-379)
+- `isProcessRunning(pid)` - Checks if process is running (lines 116-119)
+- `terminateProcess(pid)` - Kills existing process (lines 121-123)
+- Process creation uses `Bun.spawn(["sh", "-c", finalCommand], {...})`
+- Environment variables are handled through `env: {...Bun.env, ...finalEnv}`
+- Log files are created and managed through stdout/stderr redirection
+
+### Current Command Structure:
+```typescript
+const args = parseArgs({
+  args: Bun.argv,
+  options: {
+    watch: { type: "boolean" }, // Add this
+    "log-stdout": { type: "boolean" },
+    "log-stderr": { type: "boolean" },
+    // ... existing options
+  },
+  allowPositionals: true
+});
+```
+
+## Suggestions
+1. **Watch Implementation**: Use `Bun.watch()` to monitor file changes in the working directory
+2. **Process Management**: Need to gracefully terminate current process and spawn new one
+3. **Log Display**: Continue showing stdout/stderr logs during watch mode
+4. **Bun.watch() API**: Should monitor file changes and trigger restart
+5. **Signal Handling**: Handle SIGINT gracefully to clean up watch mode
+
+## Format
+Provide the complete implementation of the --watch functionality including:
+1. Adding watch flag to command parsing
+2. Implementing watch mode with process restart logic
+3. Integrating log display options (-err and -out)
+4. Proper cleanup and signal handling
+
+## Files
+./Documents/bgr/src/index.ts
+```
 #!/usr/bin/env bun
 
 import { $, sleep } from "bun";
@@ -321,10 +375,13 @@ async function showLogs(name: string, logType: 'stdout' | 'stderr' | 'both' = 'b
     error(`No process found named '${name}'`);
   }
 
+  const homePath = (await $`echo $HOME`.text()).trim();
+  const logsDir = join(homePath, ".bgr");
+  
   if (logType === 'both' || logType === 'stdout') {
     console.log(chalk.green.bold(`📄 Stdout logs for ${name}:`));
     console.log(chalk.gray('═'.repeat(50)));
-
+    
     if (fs.existsSync(proc.stdout_path)) {
       try {
         const tailCmd = lines ? `tail -n ${lines} "${proc.stdout_path}"` : `cat "${proc.stdout_path}"`;
@@ -336,16 +393,16 @@ async function showLogs(name: string, logType: 'stdout' | 'stderr' | 'both' = 'b
     } else {
       console.log(chalk.gray('(log file not found)'));
     }
-
+    
     if (logType === 'both') {
       console.log('\n');
     }
   }
-
+  
   if (logType === 'both' || logType === 'stderr') {
     console.log(chalk.red.bold(`📄 Stderr logs for ${name}:`));
     console.log(chalk.gray('═'.repeat(50)));
-
+    
     if (fs.existsSync(proc.stderr_path)) {
       try {
         const tailCmd = lines ? `tail -n ${lines} "${proc.stderr_path}"` : `cat "${proc.stderr_path}"`;
@@ -357,6 +414,21 @@ async function showLogs(name: string, logType: 'stdout' | 'stderr' | 'both' = 'b
     } else {
       console.log(chalk.gray('(log file not found)'));
     }
+  }
+  
+  // List backup logs
+  console.log(`\n${chalk.cyan.bold('📁 Available backup logs:')}`);
+  console.log(chalk.gray('═'.repeat(50)));
+  
+  try {
+    const backupFiles = await $`ls -la "${logsDir}" | grep ${name}`.nothrow().text();
+    if (backupFiles.trim()) {
+      console.log(backupFiles);
+    } else {
+      console.log(chalk.gray('(no backup logs found)'));
+    }
+  } catch (error) {
+    console.log(chalk.gray('(no backup logs found)'));
   }
 }
 
@@ -511,7 +583,7 @@ async function handleRun(options: CommandOptions) {
   await retryDatabaseOperation(() =>
     db.query(
       `INSERT INTO processes (pid, workdir, command, name, env, configPath, stdout_path, stderr_path, timestamp) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newProcess.pid,
       finalDirectory,
@@ -529,160 +601,6 @@ async function handleRun(options: CommandOptions) {
     `${existingProcess ? '🔄 Restarted' : '🚀 Launched'} process "${name}" with PID ${newProcess.pid}`,
     "Process Started"
   );
-}
-
-function tailFile(path: string, prefix: string, colorFn: (s: string) => string, lines?: number): () => void {
-  let position = 0;
-  let lastPartial = '';
-
-  const fd = fs.openSync(path, 'r');
-
-  const printNewContent = () => {
-    const stats = fs.statSync(path);
-    if (stats.size <= position) return;
-
-    const buffer = Buffer.alloc(stats.size - position);
-    fs.readSync(fd, buffer, 0, buffer.length, position);
-
-    let content = buffer.toString();
-    content = lastPartial + content;
-    lastPartial = '';
-
-    const lineArray = content.split(/\r?\n/);
-    if (!content.endsWith('\n')) {
-      lastPartial = lineArray.pop() || '';
-    }
-
-    lineArray.forEach(line => {
-      if (line) {
-        console.log(colorFn(prefix + line));
-      }
-    });
-
-    position = stats.size;
-  };
-
-  const watcher = fs.watch(path, { persistent: true }, (event) => {
-    if (event === 'change') {
-      printNewContent();
-    }
-  });
-
-  printNewContent(); // Check immediately
-
-  return () => {
-    watcher.close();
-    fs.closeSync(fd);
-  };
-}
-
-async function handleWatch(options: CommandOptions, logOptions: { showLogs: boolean; logType: 'stdout' | 'stderr' | 'both', lines?: number }) {
-  let currentProcess: ProcessRecord | null = null;
-  let isRestarting = false;
-  let debounceTimeout: Timer | null = null;
-  let tailStops: (() => void)[] = [];
-
-  const startTails = () => {
-    const stops: (() => void)[] = [];
-
-    if (!logOptions.showLogs || !currentProcess) return stops;
-
-    console.log(chalk.gray("\n" + '─'.repeat(50) + "\n"));
-
-    if (logOptions.logType === 'both' || logOptions.logType === 'stdout') {
-      console.log(chalk.green.bold(`📄 Tailing stdout for ${options.name}:`));
-      console.log(chalk.gray('═'.repeat(50)));
-      const stop = tailFile(currentProcess.stdout_path, '', chalk.white, logOptions.lines);
-      stops.push(stop);
-    }
-
-    if (logOptions.logType === 'both' || logOptions.logType === 'stderr') {
-      console.log(chalk.red.bold(`📄 Tailing stderr for ${options.name}:`));
-      console.log(chalk.gray('═'.repeat(50)));
-      const stop = tailFile(currentProcess.stderr_path, '', chalk.red, logOptions.lines);
-      stops.push(stop);
-    }
-
-    return stops;
-  };
-
-  const restartProcess = async (path?: string) => {
-    if (isRestarting) return;
-    isRestarting = true;
-
-    tailStops.forEach(stop => stop());
-    tailStops = [];
-
-    console.clear();
-    const reason = path ? `change detected in ${chalk.yellow(path)}` : 'initial start';
-    announce(`🔄 Restarting process '${options.name}'... [${reason}]`, "Watch Mode");
-
-    try {
-      await handleRun({ ...options, force: true });
-      currentProcess = db.query(`SELECT * FROM processes WHERE name = ? ORDER BY timestamp DESC LIMIT 1`).get(options.name) as ProcessRecord;
-
-      if (!currentProcess) {
-        error(`Failed to find process '${options.name}' after restart.`);
-        return;
-      }
-      
-      // Add a small delay to ensure the process has started writing logs
-      await sleep(100);
-      
-      tailStops = startTails();
-    } catch (err) {
-      error(`Error during restart: ${err}`);
-    } finally {
-      isRestarting = false;
-      console.log(chalk.cyan(`\n👀 Watching for file changes in: ${currentProcess?.workdir || options.directory}`));
-    }
-  };
-
-  // Initial start
-  console.clear();
-  announce(`🚀 Starting initial process '${options.name}' in watch mode...`, "Watch Mode");
-  await handleRun(options);
-  currentProcess = db.query(`SELECT * FROM processes WHERE name = ? ORDER BY timestamp DESC LIMIT 1`).get(options.name) as ProcessRecord;
-
-  if (!currentProcess) {
-    error(`Could not start or find process '${options.name}'. Aborting watch mode.`);
-    return;
-  }
-
-  // Add delay here too for initial start
-  await sleep(100);
-  tailStops = startTails();
-
-  const workdir = currentProcess.workdir;
-  console.log(chalk.cyan(`\n👀 Watching for file changes in: ${workdir}`));
-
-  const watcher = fs.watch(workdir, { recursive: true }, (eventType, filename) => {
-    if (filename == null) return;
-    const fullPath = join(workdir, filename);
-    if (fullPath.includes(".git") || fullPath.includes("node_modules")) return;
-    if (debounceTimeout) clearTimeout(debounceTimeout);
-    debounceTimeout = setTimeout(() => restartProcess(fullPath), 500);
-  });
-
-  const cleanup = async () => {
-    console.log(chalk.magenta('\nSIGINT received. Shutting down watcher and process...'));
-    watcher.close();
-    tailStops.forEach(stop => stop());
-    if (debounceTimeout) clearTimeout(debounceTimeout);
-
-    const procToKill = db.query(`SELECT * FROM processes WHERE name = ? ORDER BY timestamp DESC LIMIT 1`).get(options.name) as ProcessRecord;
-    if (procToKill) {
-      const isRunning = await isProcessRunning(procToKill.pid);
-      if (isRunning) {
-        await terminateProcess(procToKill.pid);
-        console.log(`Terminated process ${procToKill.name} (PID: ${procToKill.pid})`);
-      }
-    }
-    process.exit(0);
-  };
-
-  process.on('SIGINT', cleanup);
-  process.on('SIGTERM', cleanup);
 }
 
 async function hasRunningProcesses(): Promise<boolean> {
@@ -739,22 +657,21 @@ async function showHelp() {
 
     2. Optional Parameters
     ${chalk.gray('─'.repeat(30))}
-    --version      Show the installed version of bgr
-    --watch        Watch for file changes and restart the process automatically
-    --config       <path>     Config file for environment variables (default: .config.toml)
-    --force        Force restart if process is running
-    --fetch        Pull latest git changes before running
-    --stdout       <path>     Custom stdout log path
-    --stderr       <path>     Custom stderr log path
-    --db           <path>     Custom database file path
-    --json         Output in JSON format
-    --filter       <group>    Filter instances where env BGR_GROUP equals <group>
-    --logs         Show process logs
-    --log-stdout   Show only stdout logs
-    --log-stderr   Show only stderr logs
-    --lines        <number>   Number of lines to show from logs
-    --help         Show this help message
-    --nuke         Delete all processes (use with caution!)
+    --version     Show the installed version of bgr
+    --config      <path>      Config file for environment variables (default: .config.toml)
+    --force                   Force restart if process is running
+    --fetch                   Pull latest git changes before running
+    --stdout      <path>      Custom stdout log path
+    --stderr      <path>      Custom stderr log path
+    --db          <path>      Custom database file path
+    --json                    Output in JSON format
+    --filter      <group>     Filter instances where env BGR_GROUP equals <group>
+    --logs                    Show process logs
+    --log-stdout              Show only stdout logs
+    --log-stderr              Show only stderr logs
+    --lines       <number>    Number of lines to show from logs
+    --help                    Show this help message
+    --nuke                    Delete all processes (use with caution!)
 
     3. Environment
     ${chalk.gray('─'.repeat(30))}
@@ -764,9 +681,6 @@ async function showHelp() {
     ${chalk.bold('Examples:')}
     Start a Node.js application:
     $ bgr --name myapp --directory ~/projects/myapp --command "npm start"
-
-    Watch a process and show logs on restart:
-    $ bgr --name myapp --dir . --command "bun run dev" --watch --logs
 
     Restart with latest changes:
     $ bgr myapp --restart --fetch
@@ -782,28 +696,27 @@ async function main() {
     args: Bun.argv,
     options: {
       remote: { type: "string", default: "origin" },
-      directory: { type: "string", short: "d" },
-      command: { type: "string", short: "c" },
-      name: { type: "string", short: "n" },
+      directory: { type: "string" },
+      command: { type: "string" },
+      name: { type: "string" },
       config: { type: "string" },
-      force: { type: "boolean", short: "f" },
+      force: { type: "boolean" },
       fetch: { type: "boolean" },
       stdout: { type: "string" },
       stderr: { type: "string" },
-      help: { type: "boolean", short: "h" },
-      version: { type: "boolean", short: "v" },
-      restart: { type: "boolean", short: "r" },
+      help: { type: "boolean" },
+      version: { type: "boolean" },
+      restart: { type: "boolean" },
       delete: { type: "boolean" },
       db: { type: "string" },
       nuke: { type: "boolean" },
       clean: { type: "boolean" },
       json: { type: "boolean" },
-      logs: { type: "boolean", short: "l" },
+      logs: { type: "boolean" },
       "log-stdout": { type: "boolean" },
       "log-stderr": { type: "boolean" },
       lines: { type: "string" },
       filter: { type: "string" },
-      watch: { type: "boolean", short: "w" },
     },
     allowPositionals: true
   });
@@ -833,9 +746,7 @@ async function main() {
   const processName = args.positionals[2];
   let action: string;
 
-  if (args.values.watch) {
-    action = 'watch';
-  } else if (args.values.help) {
+  if (args.values.help) {
     action = 'help';
   } else if (args.values.version) {
     action = 'version';
@@ -901,20 +812,10 @@ Tip: you can start processes with BGR_GROUP set to group them, e.g. BGR_GROUP=ap
         await showDetails(options.name!);
         break;
       case 'logs':
-        const logType = args.values['log-stdout'] ? 'stdout' :
-          args.values['log-stderr'] ? 'stderr' : 'both';
+        const logType = args.values['log-stdout'] ? 'stdout' : 
+                       args.values['log-stderr'] ? 'stderr' : 'both';
         const lineCount = args.values.lines ? parseInt(args.values.lines) : undefined;
         await showLogs(options.name!, logType, lineCount);
-        break;
-      case 'watch':
-        const existingProcess = options.name ? db.query(`SELECT * FROM processes WHERE name = ? ORDER BY timestamp DESC LIMIT 1`).get(options.name) as ProcessRecord : null;
-        if (!existingProcess && (!options.name || !options.command || !options.directory)) {
-          error("Watch mode requires '--name', '--command', and '--directory' for the initial run.");
-        }
-        // In watch mode, logs are ALWAYS shown (hardcoded to true)
-        const watchLogType = args.values['log-stdout'] ? 'stdout' : args.values['log-stderr'] ? 'stderr' : 'both';
-        const watchLineCount = args.values.lines ? parseInt(args.values.lines) : undefined;
-        await handleWatch(options, { showLogs: true, logType: watchLogType, lines: watchLineCount });
         break;
       case 'run':
         await handleRun(options);
@@ -939,3 +840,4 @@ Tip: you can start processes with BGR_GROUP set to group them, e.g. BGR_GROUP=ap
 if (import.meta.path === Bun.main) {
   main();
 }
+```
