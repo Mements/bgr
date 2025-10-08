@@ -118,8 +118,19 @@ async function isProcessRunning(pid: number): Promise<boolean> {
   return result.includes(`${pid}`);
 }
 
-async function terminateProcess(pid: number): Promise<void> {
-  await $`kill ${pid}`.nothrow();
+async function terminateProcess(pid: number, force: boolean = false): Promise<void> {
+  const signal = force ? 'KILL' : 'TERM';
+
+  // @note kill children of "sh -c" wrapper
+  let childrenResult = await $`ps --no-headers -o pid --ppid ${pid}`.nothrow().text();
+  const children = childrenResult.trim().split('\n').filter(p => p.trim()).map(p => parseInt(p)).filter(n => !isNaN(n));
+
+  for (const childPid of children) {
+    await $`kill -${signal} ${childPid}`.nothrow();
+  }
+
+  // @note sh -c will quit after its children killed
+  await sleep(500);
 }
 
 async function killProcessOnPort(port: number): Promise<void> {
@@ -166,7 +177,7 @@ function flattenConfig(obj: any, prefix = ''): Record<string, string> {
 
 
 async function parseConfigFile(configPath: string): Promise<Record<string, string>> {
-  // @dev t suffix solves caching issue with env variables when using --watch flag
+  // @note t suffix solves caching issue with env variables when using --watch flag
   const importPath = `${configPath}?t=${Date.now()}`;
   const parsedConfig = await import(importPath).then(m => m.default);
   return flattenConfig(parsedConfig);
@@ -330,6 +341,7 @@ async function showLogs(name: string, logType: 'stdout' | 'stderr' | 'both' = 'b
     if (fs.existsSync(proc.stdout_path)) {
       try {
         const tailCmd = lines ? `tail -n ${lines} "${proc.stdout_path}"` : `cat "${proc.stdout_path}"`;
+        // @note "sh -c" wrapper allows to pass complex commands with unescaped symbols
         const output = await $`sh -c ${tailCmd}`.text();
         console.log(output || chalk.gray('(no output)'));
       } catch (error) {
@@ -775,7 +787,7 @@ async function handleWatch(options: CommandOptions, logOptions: { showLogs: bool
     if (procToKill) {
       const isRunning = await isProcessRunning(procToKill.pid);
       if (isRunning) {
-        // await terminateProcess(procToKill.pid);
+        // @note avoid "await terminateProcess(procToKill.pid)" because we can re-attach --watch mode to running process
         console.log(`process ${procToKill.name} (PID: ${procToKill.pid}) still running`);
       }
     }
