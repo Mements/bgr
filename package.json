@@ -1,6 +1,6 @@
 {
   "name": "bgr",
-  "version": "2.7.1",
+  "version": "2.7.4",
   "description": "Bun: Background Runner - A lightweight process manager written in Bun",
   "type": "module",
   "bin": {
@@ -8,7 +8,8 @@
   },
   "scripts": {
     "build": "bun run ./src/build.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "prepublishOnly": "bun run build"
   },
   "files": [
     "dist",
