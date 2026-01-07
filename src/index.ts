@@ -9,7 +9,26 @@ import boxen from "boxen";
 import chalk from "chalk";
 import dedent from "dedent";
 import { renderProcessTable, ProcessTableRow } from "./table";
-import { getVersion } from './version.macro.ts' with { type: 'macro' };
+import {
+  getHomeDir,
+  isProcessRunning,
+  terminateProcess,
+  killProcessOnPort,
+  ensureDir,
+  getShellCommand,
+  readFileTail,
+} from "./platform";
+
+// Read version at runtime instead of using macros (macros crash on Windows)
+async function getVersion(): Promise<string> {
+  try {
+    const pkgPath = join(import.meta.dir, '../package.json');
+    const pkg = await Bun.file(pkgPath).json();
+    return pkg.version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
 
 interface CommandOptions {
   remoteName: string;
@@ -39,13 +58,11 @@ interface ProcessRecord {
   stderr_path: string;
 }
 
-const homePath = (await $`echo $HOME`.text()).trim();
+const homePath = getHomeDir();
 const dbName = process.env.DB_NAME ?? "bgr";
 const dbPath = `${homePath}/.bgr/${dbName}.sqlite`;
 
-if (!fs.existsSync(`${homePath}/.bgr`)) {
-  await $`mkdir -p ${homePath}/.bgr`.nothrow();
-}
+ensureDir(`${homePath}/.bgr`);
 
 let db = new Database(dbPath, { create: true });
 db.query(`
@@ -113,40 +130,9 @@ function calculateRuntime(startTime: string): string {
   return `${diffInMinutes} minutes`;
 }
 
-async function isProcessRunning(pid: number): Promise<boolean> {
-  const result = await $`ps -p ${pid}`.nothrow().text();
-  return result.includes(`${pid}`);
-}
+// isProcessRunning and terminateProcess are now imported from ./platform
 
-async function terminateProcess(pid: number, force: boolean = false): Promise<void> {
-  const signal = force ? 'KILL' : 'TERM';
-
-  // @note kill children of "sh -c" wrapper
-  let childrenResult = await $`ps --no-headers -o pid --ppid ${pid}`.nothrow().text();
-  const children = childrenResult.trim().split('\n').filter(p => p.trim()).map(p => parseInt(p)).filter(n => !isNaN(n));
-
-  for (const childPid of children) {
-    await $`kill -${signal} ${childPid}`.nothrow();
-  }
-
-  // @note sh -c will quit after its children killed
-  await sleep(500);
-}
-
-async function killProcessOnPort(port: number): Promise<void> {
-  try {
-    const result = await $`lsof -ti :${port}`.nothrow().text();
-    if (result.trim()) {
-      const pids = result.trim().split('\n').filter(pid => pid);
-      for (const pid of pids) {
-        await $`kill ${pid}`.nothrow();
-        console.log(`Killed process ${pid} using port ${port}`);
-      }
-    }
-  } catch (error) {
-    console.warn(`Warning: Could not check or kill process on port ${port}: ${error}`);
-  }
-}
+// killProcessOnPort is now imported from ./platform
 
 function formatEnvKey(key: string): string {
   return key.toUpperCase().replace(/\./g, '_');
@@ -340,12 +326,10 @@ async function showLogs(name: string, logType: 'stdout' | 'stderr' | 'both' = 'b
 
     if (fs.existsSync(proc.stdout_path)) {
       try {
-        const tailCmd = lines ? `tail -n ${lines} "${proc.stdout_path}"` : `cat "${proc.stdout_path}"`;
-        // @note "sh -c" wrapper allows to pass complex commands with unescaped symbols
-        const output = await $`sh -c ${tailCmd}`.text();
+        const output = await readFileTail(proc.stdout_path, lines);
         console.log(output || chalk.gray('(no output)'));
-      } catch (error) {
-        console.log(chalk.red(`Error reading stdout: ${error}`));
+      } catch (err) {
+        console.log(chalk.red(`Error reading stdout: ${err}`));
       }
     } else {
       console.log(chalk.gray('(log file not found)'));
@@ -362,11 +346,10 @@ async function showLogs(name: string, logType: 'stdout' | 'stderr' | 'both' = 'b
 
     if (fs.existsSync(proc.stderr_path)) {
       try {
-        const tailCmd = lines ? `tail -n ${lines} "${proc.stderr_path}"` : `cat "${proc.stderr_path}"`;
-        const output = await $`sh -c ${tailCmd}`.text();
+        const output = await readFileTail(proc.stderr_path, lines);
         console.log(output || chalk.gray('(no errors)'));
-      } catch (error) {
-        console.log(chalk.red(`Error reading stderr: ${error}`));
+      } catch (err) {
+        console.log(chalk.red(`Error reading stderr: ${err}`));
       }
     } else {
       console.log(chalk.gray('(log file not found)'));
@@ -512,7 +495,7 @@ async function handleRun(options: CommandOptions) {
   const stderrPath = stderr || join(homePath, ".bgr", `${name}-err.txt`);
   Bun.write(stderrPath, '');
 
-  const newProcess = Bun.spawn(["sh", "-c", finalCommand], {
+  const newProcess = Bun.spawn(getShellCommand(finalCommand), {
     env: { ...Bun.env, ...finalEnv },
     cwd: finalDirectory,
     stdout: Bun.file(stdoutPath),
@@ -923,9 +906,7 @@ async function main() {
 
   if (args.values.db) {
     const customDbDir = join(args.values.db, "..");
-    if (!fs.existsSync(customDbDir)) {
-      await $`mkdir -p ${customDbDir}`.nothrow();
-    }
+    ensureDir(customDbDir);
     db = new Database(args.values.db, { create: true });
     db.query(`
       CREATE TABLE IF NOT EXISTS processes (
