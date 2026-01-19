@@ -7,7 +7,7 @@ const result = await Bun.build({
   outdir: './dist',
   target: 'bun', // Optimize for the Bun runtime
   format: 'esm',
-  minify: true, // Minify for smaller file size
+  minify: false, // Minify for smaller file size
 });
 
 if (!result.success) {
