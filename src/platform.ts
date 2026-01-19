@@ -7,8 +7,10 @@ import * as fs from "fs";
 import * as os from "os";
 import { $ } from "bun";
 
-/** Detect if running on Windows */
-export const isWindows = process.platform === "win32";
+/** Detect if running on Windows - use function to prevent bundler tree-shaking */
+export function isWindows(): boolean {
+  return process.platform === "win32";
+}
 
 /**
  * Get the user's home directory cross-platform
@@ -22,7 +24,7 @@ export function getHomeDir(): string {
  */
 export async function isProcessRunning(pid: number): Promise<boolean> {
   try {
-    if (isWindows) {
+    if (isWindows()) {
       // On Windows, use tasklist to check for PID
       const result = await $`tasklist /FI "PID eq ${pid}" /NH`.nothrow().text();
       return result.includes(`${pid}`);
@@ -41,7 +43,7 @@ export async function isProcessRunning(pid: number): Promise<boolean> {
  */
 async function getChildPids(pid: number): Promise<number[]> {
   try {
-    if (isWindows) {
+    if (isWindows()) {
       // On Windows, use wmic to get child processes
       const result = await $`wmic process where (ParentProcessId=${pid}) get ProcessId`.nothrow().text();
       return result
@@ -69,10 +71,10 @@ async function getChildPids(pid: number): Promise<number[]> {
 export async function terminateProcess(pid: number, force: boolean = false): Promise<void> {
   // First, kill children
   const children = await getChildPids(pid);
-  
+
   for (const childPid of children) {
     try {
-      if (isWindows) {
+      if (isWindows()) {
         if (force) {
           await $`taskkill /F /PID ${childPid}`.nothrow();
         } else {
@@ -89,11 +91,11 @@ export async function terminateProcess(pid: number, force: boolean = false): Pro
 
   // Wait a bit for graceful shutdown
   await Bun.sleep(500);
-  
+
   // Then kill the parent if still running
   if (await isProcessRunning(pid)) {
     try {
-      if (isWindows) {
+      if (isWindows()) {
         if (force) {
           await $`taskkill /F /PID ${pid}`.nothrow();
         } else {
@@ -114,18 +116,18 @@ export async function terminateProcess(pid: number, force: boolean = false): Pro
  */
 export async function killProcessOnPort(port: number): Promise<void> {
   try {
-    if (isWindows) {
+    if (isWindows()) {
       // On Windows, use netstat to find processes on port
       const result = await $`netstat -ano | findstr :${port}`.nothrow().text();
       const pids = new Set<number>();
-      
+
       for (const line of result.split('\n')) {
         const match = line.match(/LISTENING\s+(\d+)/);
         if (match) {
           pids.add(parseInt(match[1]));
         }
       }
-      
+
       for (const pid of pids) {
         await $`taskkill /F /PID ${pid}`.nothrow();
         console.log(`Killed process ${pid} using port ${port}`);
@@ -160,8 +162,8 @@ export function ensureDir(dirPath: string): void {
  * Returns ["sh", "-c", command] on Unix, ["pwsh", "-Command", command] on Windows
  */
 export function getShellCommand(command: string): [string, string, string] {
-  if (isWindows) {
-    return ["pwsh", "-Command", command];
+  if (isWindows()) {
+    return ["powershell", "-Command", command];
   } else {
     return ["sh", "-c", command];
   }
@@ -173,11 +175,11 @@ export function getShellCommand(command: string): [string, string, string] {
 export async function readFileTail(filePath: string, lines?: number): Promise<string> {
   try {
     const content = await Bun.file(filePath).text();
-    
+
     if (!lines) {
       return content;
     }
-    
+
     const allLines = content.split(/\r?\n/);
     const tailLines = allLines.slice(-lines);
     return tailLines.join('\n');
@@ -198,7 +200,7 @@ export function copyFile(src: string, dest: string): void {
  */
 export async function getProcessMemory(pid: number): Promise<number> {
   try {
-    if (isWindows) {
+    if (isWindows()) {
       // On Windows, use wmic to get memory
       const result = await $`wmic process where ProcessId=${pid} get WorkingSetSize`.nothrow().text();
       const lines = result.split('\n').filter(line => line.trim() && !line.includes('WorkingSetSize'));

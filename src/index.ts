@@ -503,6 +503,8 @@ async function handleRun(options: CommandOptions) {
   });
 
   newProcess.unref();
+  // Windows: delay for subprocess stdout to initialize
+  if (process.platform === 'win32') await sleep(500);
   const timestamp = new Date().toISOString();
 
   await retryDatabaseOperation(() =>

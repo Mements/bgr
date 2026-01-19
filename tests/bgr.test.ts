@@ -129,7 +129,7 @@ describe("bgr Process Manager Fixes", () => {
         expect(proc.configPath).toBe(".config.toml"); // Should store the default path it looked for
     }, 20000);
 
-    test.skipIf(process.platform === "win32")("Bug 2 Fix: Should remember and use custom config path on restart", async () => {
+    test("Bug 2 Fix: Should remember and use custom config path on restart", async () => {
         // 1. Create a custom config file
         const customConfigName = "prod.config.ts";
         const customConfigPath = join(appDir, customConfigName);
