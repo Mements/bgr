@@ -9,7 +9,10 @@ const isWindows = process.platform === "win32";
 // --- Test Configuration ---
 const testDir = join(import.meta.dir, "test_env");
 const appDir = join(testDir, "my-app");
-const dbPath = join(testDir, "test.sqlite");
+// We use DB_NAME env var to point to a test DB instead of --db flag
+const testDbName = "test_bgr";
+const homePath = process.env.USERPROFILE || process.env.HOME || "";
+const dbPath = join(homePath, ".bgr", `${testDbName}_v2.sqlite`);
 // Corrected path: Go up one level from `tests` to the project root, then into `src`.
 const scriptPath = join(import.meta.dir, "..", "src", "index.ts");
 
@@ -18,10 +21,14 @@ const scriptPath = join(import.meta.dir, "..", "src", "index.ts");
 /** Runs the bgr script as a subprocess with specified arguments. */
 const runBgr = async (args: string[]) => {
     const proc = Bun.spawn(
-        ["bun", "run", scriptPath, "--db", dbPath, ...args],
+        ["bun", "run", scriptPath, ...args],
         {
             stdout: "pipe",
             stderr: "pipe",
+            env: {
+                ...Bun.env,
+                DB_NAME: testDbName // Use test database
+            }
         }
     );
     const exitCode = await proc.exited;
@@ -58,7 +65,8 @@ const cleanup = async () => {
     // Terminate any running test processes recorded in the DB
     try {
         const db = new Database(dbPath);
-        const pids = db.query<{ pid: number }, []>(`SELECT pid FROM processes`).all();
+        // SatiDB uses singular table name "process"
+        const pids = db.query<{ pid: number }, []>(`SELECT pid FROM process`).all();
         db.close();
 
         for (const { pid } of pids) {
@@ -86,6 +94,11 @@ const cleanup = async () => {
             if (i < 2) await sleep(500);
         }
     }
+
+    // Also try to remove the test database
+    try {
+        await fs.rm(dbPath, { force: true });
+    } catch { /* ignore */ }
 };
 
 // --- Test Suite ---
@@ -119,9 +132,9 @@ describe("bgr Process Manager Fixes", () => {
         expect(stdout).toContain("🚀 Launched process \"app-no-config\"");
         expect(exitCode).toBe(0);
 
-        // Verify database entry
+        // Verify database entry - SatiDB uses singular "process" table
         const db = new Database(dbPath);
-        const proc = db.query(`SELECT * FROM processes WHERE name = ?`).get("app-no-config") as any;
+        const proc = db.query(`SELECT * FROM process WHERE name = ?`).get("app-no-config") as any;
         db.close();
 
         expect(proc).toBeDefined();
@@ -151,9 +164,9 @@ describe("bgr Process Manager Fixes", () => {
         expect(startResult.stderr).not.toContain("Error:");
         expect(startResult.stdout).toContain("🚀 Launched process \"app-with-config\"");
 
-        // Verify DB entry has the correct custom config path
+        // Verify DB entry has the correct custom config path - SatiDB uses singular "process" table
         let db = new Database(dbPath);
-        const proc1 = db.query(`SELECT * FROM processes WHERE name = ?`).get("app-with-config") as any;
+        const proc1 = db.query(`SELECT * FROM process WHERE name = ?`).get("app-with-config") as any;
         db.close();
 
         expect(proc1).toBeDefined();

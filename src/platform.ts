@@ -21,9 +21,15 @@ export function getHomeDir(): string {
 
 /**
  * Check if a process with the given PID is running
+ * For Docker containers, checks container status instead of PID
  */
-export async function isProcessRunning(pid: number): Promise<boolean> {
+export async function isProcessRunning(pid: number, command?: string): Promise<boolean> {
   try {
+    // Docker container detection
+    if (command && (command.includes('docker run') || command.includes('docker-compose up') || command.includes('docker compose up'))) {
+      return await isDockerContainerRunning(command);
+    }
+
     if (isWindows()) {
       // On Windows, use tasklist to check for PID
       const result = await $`tasklist /FI "PID eq ${pid}" /NH`.nothrow().text();
@@ -37,6 +43,35 @@ export async function isProcessRunning(pid: number): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Check if a Docker container from a command is running
+ */
+async function isDockerContainerRunning(command: string): Promise<boolean> {
+  try {
+    // Extract container name from --name flag
+    const nameMatch = command.match(/--name\s+["']?(\S+?)["']?(?:\s|$)/);
+    if (nameMatch) {
+      const containerName = nameMatch[1];
+      const result = await $`docker inspect -f "{{.State.Running}}" ${containerName}`.nothrow().text();
+      return result.trim() === 'true';
+    }
+
+    // If no --name, try to find running containers that match the image
+    // Extract image name (last argument before -d or after -d)
+    const imageMatch = command.match(/docker\s+run\s+.*?(?:-d\s+)?(\S+)\s*$/);
+    if (imageMatch) {
+      const imageName = imageMatch[1];
+      const result = await $`docker ps --filter ancestor=${imageName} --format "{{.ID}}"`.nothrow().text();
+      return result.trim().length > 0;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 
 /**
  * Get child process PIDs (for termination)
@@ -159,19 +194,49 @@ export function ensureDir(dirPath: string): void {
 
 /**
  * Get the shell command array for spawning a process
- * Returns ["sh", "-c", command] on Unix, ["pwsh", "-Command", command] on Windows
+ * On Windows uses cmd.exe, on Unix uses sh
  */
-export function getShellCommand(command: string): [string, string, string] {
+export function getShellCommand(command: string): string[] {
   if (isWindows()) {
-    return ["powershell", "-Command", command];
+    return ["cmd", "/c", command];
   } else {
     return ["sh", "-c", command];
   }
 }
 
 /**
- * Read the last N lines of a file, or entire file if lines not specified
+ * Find the actual child process PID spawned by a shell wrapper
+ * Returns the child PID or the original PID if no child found
  */
+export async function findChildPid(parentPid: number): Promise<number> {
+  try {
+    if (isWindows()) {
+      // Use PowerShell Get-CimInstance (wmic is deprecated)
+      const result = await $`powershell -Command "Get-CimInstance Win32_Process -Filter 'ParentProcessId=${parentPid}' | Select-Object -ExpandProperty ProcessId"`.nothrow().text();
+      const pids = result
+        .split('\n')
+        .map((line: string) => parseInt(line.trim()))
+        .filter((n: number) => !isNaN(n) && n > 0);
+
+      // Return first child PID if found
+      if (pids.length > 0) {
+        return pids[0];
+      }
+    } else {
+      // Unix - use ps to find child
+      const result = await $`ps --no-headers -o pid --ppid ${parentPid}`.nothrow().text();
+      const childPid = parseInt(result.trim());
+      if (!isNaN(childPid) && childPid > 0) {
+        return childPid;
+      }
+    }
+  } catch {
+    // Ignore errors
+  }
+  return parentPid;
+}
+
+
 export async function readFileTail(filePath: string, lines?: number): Promise<string> {
   try {
     const content = await Bun.file(filePath).text();
