@@ -5,9 +5,12 @@ console.log("Starting build process for bgr...");
 const result = await Bun.build({
   entrypoints: ['./src/index.ts'],
   outdir: './dist',
-  target: 'bun', // Optimize for the Bun runtime
+  target: 'bun',
   format: 'esm',
-  minify: false, // Minify for smaller file size
+  minify: false,
+  // Mark all packages as external to rely on node_modules
+  // This avoids bundling native modules or mismatched React versions
+  packages: "external",
 });
 
 if (!result.success) {
