@@ -8,9 +8,9 @@ import { handleDelete, handleClean, handleDeleteAll } from "./commands/cleanup";
 import { handleWatch } from "./commands/watch";
 import { showLogs } from "./commands/logs";
 import { showDetails } from "./commands/details";
-import { CommandOptions } from "./types";
+import { handleDashboard } from "./commands/dashboard";
+import type { CommandOptions } from "./types";
 import { error, announce } from "./logger";
-import { startServer } from "./server";
 import dedent from "dedent";
 import chalk from "chalk";
 
@@ -25,7 +25,7 @@ async function showHelp() {
     ${chalk.yellow('Commands:')}
       bgr                     List all processes
       bgr [name]             Show details for a process
-      bgr --server           Start web dashboard
+      bgr --dashboard        Start web dashboard
       bgr --delete [name]    Delete a process
       bgr --restart [name]   Restart a process
       bgr --clean            Remove all stopped processes
@@ -46,12 +46,12 @@ async function showHelp() {
       --log-stderr           Show only stderr logs
       --lines <n>            Number of log lines to show (default: all)
       --version              Show version
-      --server               Start web server
-      --port <number>        Port for web server (default: 3000)
+      --dashboard            Start web dashboard (alias: --server)
+      --port <number>        Port for web dashboard (default: 3001)
       --help                 Show this help message
 
     ${chalk.yellow('Examples:')}
-      bgr --server
+      bgr --dashboard
       bgr --name myapp --command "bun run dev" --directory . --watch
       bgr myapp --logs --lines 50
   `;
@@ -86,15 +86,16 @@ async function run() {
       stdout: { type: 'string' },
       stderr: { type: 'string' },
       server: { type: 'boolean' },
+      dashboard: { type: 'boolean' },
       port: { type: 'string' },
     },
     strict: false,
     allowPositionals: true,
   });
 
-  if (values.server) {
-    const port = values.port ? parseInt(values.port as string) : 3000;
-    await startServer(port);
+  if (values.dashboard || values.server) {
+    const port = values.port ? parseInt(values.port as string) : 3001;
+    await handleDashboard(port);
     // keep running
     return;
   }
