@@ -61,21 +61,82 @@ export async function handleClean() {
     }
 }
 
+export async function handleStop(name: string) {
+    const proc = getProcess(name);
+
+    if (!proc) {
+        error(`No process found named '${name}'`);
+        return;
+    }
+
+    const isRunning = await isProcessRunning(proc.pid);
+    if (!isRunning) {
+        announce(`Process '${name}' is already stopped.`, "Process Stop");
+        return;
+    }
+
+    // Detect ports the process is using BEFORE killing it
+    const { getProcessPorts, killProcessOnPort } = await import("../platform");
+    const ports = await getProcessPorts(proc.pid);
+
+    await terminateProcess(proc.pid);
+
+    // Also kill by detected ports as safety net
+    for (const port of ports) {
+        await killProcessOnPort(port);
+    }
+
+    announce(`Process '${name}' has been stopped (kept in registry).`, "Process Stopped");
+}
+
 export async function handleDeleteAll() {
     const processes = getAllProcesses();
     if (processes.length === 0) {
         announce("There are no processes to delete.", "Delete All");
         return;
     }
+
+    const { getProcessPorts, killProcessOnPort, waitForPortFree } = await import("../platform");
+    let killedCount = 0;
+    let portsFreed = 0;
+
     for (const proc of processes) {
         const running = await isProcessRunning(proc.pid);
+
         if (running) {
-            await terminateProcess(proc.pid);
+            // Detect ports BEFORE killing so we can clean them up
+            const ports = await getProcessPorts(proc.pid);
+
+            // Force-kill the process tree
+            await terminateProcess(proc.pid, true);
+            killedCount++;
+
+            // Kill anything still holding the ports
+            for (const port of ports) {
+                await killProcessOnPort(port);
+                const freed = await waitForPortFree(port, 3000);
+                if (!freed) {
+                    await killProcessOnPort(port);
+                    await waitForPortFree(port, 2000);
+                }
+                portsFreed++;
+            }
+        }
+
+        // Clean up log files
+        if (fs.existsSync(proc.stdout_path)) {
+            try { fs.unlinkSync(proc.stdout_path); } catch { }
+        }
+        if (fs.existsSync(proc.stderr_path)) {
+            try { fs.unlinkSync(proc.stderr_path); } catch { }
         }
     }
 
-    // Use SatiDB helper
     removeAllProcesses();
 
-    announce("All processes have been stopped and deleted.", "Delete All");
+    const parts = [`${processes.length} ${processes.length === 1 ? 'process' : 'processes'} deleted`];
+    if (killedCount > 0) parts.push(`${killedCount} force-killed`);
+    if (portsFreed > 0) parts.push(`${portsFreed} ${portsFreed === 1 ? 'port' : 'ports'} freed`);
+
+    announce(parts.join(', ') + '.', "Nuke Complete");
 }

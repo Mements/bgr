@@ -22,6 +22,7 @@ export interface ProcessTableRow {
   id: number;
   pid: number;
   name: string;
+  port: string;
   command: string;
   workdir: string;
   status: string;
@@ -112,7 +113,7 @@ export function calculateColumnWidths(
 
     // If no column can be shrunk (e.g., all are width 0), break
     if (widestColKey === null || maxW <= 1) {
-        break;
+      break;
     }
 
     // Shrink the widest column by 1
@@ -218,6 +219,7 @@ export function renderProcessTable(processes: ProcessTableRow[], options?: Table
     { key: "id", header: "ID", formatter: (id) => chalk.blue(id) },
     { key: "pid", header: "PID", formatter: (pid) => chalk.yellow(pid) },
     { key: "name", header: "Name", formatter: (name) => chalk.cyan.bold(name) },
+    { key: "port", header: "Port", formatter: (port) => port === '-' ? chalk.gray(port) : chalk.hex('#FF6B6B')(port) },
     { key: "command", header: "Command" },
     { key: "workdir", header: "Directory", formatter: (dir) => chalk.gray(dir), truncator: truncatePath },
     { key: "status", header: "Status" },

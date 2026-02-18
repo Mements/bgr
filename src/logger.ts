@@ -7,7 +7,7 @@ export function announce(message: string, title?: string) {
             padding: 1,
             margin: 1,
             borderColor: 'green',
-            title: title || "bgr",
+            title: title || "bgrun",
             titleAlignment: 'center',
             borderStyle: 'round'
         })

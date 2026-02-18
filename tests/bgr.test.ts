@@ -150,12 +150,15 @@ describe("bgr Process Manager Fixes", () => {
         // Bun can import .ts files, making this easy.
         await fs.writeFile(customConfigPath, `export default { settings: { MY_VAR: "bug_was_fixed" } };`);
 
-        // 2. Start the process with the custom config
+        // 2. Create a small script to print the env var (bun -e + cmd /c + Bun.file redirect is broken on Windows)
+        const printEnvScript = join(appDir, "_print_env.ts");
+        await fs.writeFile(printEnvScript, `console.log(process.env.SETTINGS_MY_VAR);\n`);
+
+        // 3. Start the process with the custom config
         const startArgs = [
             "--name", "app-with-config",
             "--directory", appDir,
-            // Use `sh -c` for var expansion. Note the env var format from flattenConfig.
-            "--command", `bun -e 'console.log(process.env.SETTINGS_MY_VAR)'`,
+            "--command", `bun run ${printEnvScript}`,
             "--config", customConfigName,
             "--stdout", outLogPath,
         ];
@@ -164,7 +167,7 @@ describe("bgr Process Manager Fixes", () => {
         expect(startResult.stderr).not.toContain("Error:");
         expect(startResult.stdout).toContain("🚀 Launched process \"app-with-config\"");
 
-        // Verify DB entry has the correct custom config path - SatiDB uses singular "process" table
+        // Verify DB entry has the correct custom config path
         let db = new Database(dbPath);
         const proc1 = db.query(`SELECT * FROM process WHERE name = ?`).get("app-with-config") as any;
         db.close();
@@ -172,7 +175,7 @@ describe("bgr Process Manager Fixes", () => {
         expect(proc1).toBeDefined();
         expect(proc1.configPath).toBe(customConfigName);
 
-        // 3. Restart the process WITHOUT specifying --config again
+        // 4. Restart the process WITHOUT specifying --config again
         const restartArgs = ["app-with-config", "--restart", "--force"];
         const restartResult = await runBgr(restartArgs);
         await sleep(3000); // Give process time to execute and write output
@@ -181,7 +184,7 @@ describe("bgr Process Manager Fixes", () => {
         expect(restartResult.stdout).toContain(`Loaded config from ${customConfigName}`);
         expect(restartResult.stdout).toContain("🔄 Restarted process \"app-with-config\"");
 
-        // 4. Verify the correct config was used by checking the output log.
+        // 5. Verify the correct config was used by checking the output log.
         const logContent = await waitForFileContent(outLogPath, "bug_was_fixed");
         expect(logContent.trim()).toBe("bug_was_fixed");
 

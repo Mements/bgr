@@ -8,6 +8,7 @@ export function parseEnvString(envString: string): Record<string, string> {
     return env;
 }
 
+
 export function calculateRuntime(startTime: string): string {
     const start = new Date(startTime).getTime();
     const now = new Date().getTime();
@@ -35,8 +36,8 @@ export async function getVersion(): Promise<string> {
 
 
 export function validateDirectory(directory: string) {
-    if (!directory || !fs.existsSync(directory) || !fs.existsSync(join(directory, ".git"))) {
-        console.log(chalk.red("❌ Error: 'directory' must be a valid Git repository path."));
+    if (!directory || !fs.existsSync(directory)) {
+        console.log(chalk.red("❌ Error: 'directory' must be a valid path."));
         process.exit(1);
     }
 }

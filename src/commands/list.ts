@@ -4,6 +4,7 @@ import { ProcessRecord } from "../types";
 import { getAllProcesses } from "../db";
 import { announce } from "../logger";
 import { isProcessRunning, calculateRuntime, parseEnvString } from "../utils";
+import { getProcessPorts } from "../platform";
 
 export async function showAll(opts?: { json?: boolean; filter?: string }) {
     const processes = getAllProcesses();
@@ -23,9 +24,11 @@ export async function showAll(opts?: { json?: boolean; filter?: string }) {
             const isRunning = await isProcessRunning(proc.pid, proc.command);
             const envVars = parseEnvString(proc.env);
 
+            const ports = isRunning ? await getProcessPorts(proc.pid) : [];
             jsonData.push({
                 pid: proc.pid,
                 name: proc.name,
+                ports: ports.length > 0 ? ports : undefined,
                 status: isRunning ? "running" : "stopped",
                 env: envVars,
             });
@@ -42,10 +45,12 @@ export async function showAll(opts?: { json?: boolean; filter?: string }) {
         const isRunning = await isProcessRunning(proc.pid, proc.command);
         const runtime = calculateRuntime(proc.timestamp);
 
+        const ports = isRunning ? await getProcessPorts(proc.pid) : [];
         tableData.push({
             id: proc.id,
             pid: proc.pid,
             name: proc.name,
+            port: ports.length > 0 ? ports.map(p => `:${p}`).join(',') : '-',
             command: proc.command,
             workdir: proc.workdir,
             status: isRunning

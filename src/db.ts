@@ -1,32 +1,62 @@
-import { SatiDB } from "@ments/db";
-import { schemas } from "./schema";
+import { Database, z } from "sqlite-zod-orm";
 import { getHomeDir, ensureDir } from "./platform";
 import { join } from "path";
 import { sleep } from "bun";
+
+// =============================================================================
+// SCHEMA (inline — single table, no need for a separate file)
+// =============================================================================
+
+export const ProcessSchema = z.object({
+    pid: z.number(),
+    workdir: z.string(),
+    command: z.string(),
+    name: z.string(),
+    env: z.string(),
+    configPath: z.string().default(''),
+    stdout_path: z.string(),
+    stderr_path: z.string(),
+    timestamp: z.string().default(() => new Date().toISOString()),
+});
+
+export type Process = z.infer<typeof ProcessSchema> & { id: number };
+
+// =============================================================================
+// DATABASE INITIALIZATION
+// =============================================================================
 
 const homePath = getHomeDir();
 const dbName = process.env.DB_NAME ?? "bgr";
 const dbPath = join(homePath, ".bgr", `${dbName}_v2.sqlite`);
 ensureDir(join(homePath, ".bgr"));
 
-export const db = new SatiDB(dbPath, schemas);
+export const db = new Database(dbPath, {
+    process: ProcessSchema,
+}, {
+    indexes: {
+        process: ['name', 'timestamp', 'pid'],
+    },
+});
 
-// --- Query Functions ---
+// =============================================================================
+// QUERY FUNCTIONS
+// =============================================================================
 
 export function getProcess(name: string) {
-    const results = db.process.findMany({
-        where: { name },
-        orderBy: { timestamp: 'desc' },
-        take: 1
-    });
-    return results[0] || null;
+    return db.process.select()
+        .where({ name })
+        .orderBy('timestamp', 'desc')
+        .limit(1)
+        .get() || null;
 }
 
 export function getAllProcesses() {
-    return db.process.find();
+    return db.process.select().all();
 }
 
-// --- Mutation Functions ---
+// =============================================================================
+// MUTATION FUNCTIONS
+// =============================================================================
 
 export function insertProcess(data: {
     pid: number;
@@ -40,32 +70,34 @@ export function insertProcess(data: {
 }) {
     return db.process.insert({
         ...data,
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
     });
 }
 
 export function removeProcess(pid: number) {
-    const p = db.process.findOne({ pid });
-    if (p) {
+    const matches = db.process.select().where({ pid }).all();
+    for (const p of matches) {
         db.process.delete(p.id);
     }
 }
 
 export function removeProcessByName(name: string) {
-    const processes = db.process.find({ name });
-    for (const p of processes) {
+    const matches = db.process.select().where({ name }).all();
+    for (const p of matches) {
         db.process.delete(p.id);
     }
 }
 
 export function removeAllProcesses() {
-    const all = db.process.find();
+    const all = db.process.select().all();
     for (const p of all) {
         db.process.delete(p.id);
     }
 }
 
-// --- Utilities ---
+// =============================================================================
+// UTILITIES
+// =============================================================================
 
 export async function retryDatabaseOperation<T>(operation: () => T, maxRetries = 5, delay = 100): Promise<T> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {

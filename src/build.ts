@@ -1,6 +1,6 @@
 import { EOL } from 'os';
 
-console.log("Starting build process for bgr...");
+console.log("Starting build process for bgrun...");
 
 const result = await Bun.build({
   entrypoints: ['./src/index.ts'],

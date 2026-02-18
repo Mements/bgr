@@ -2,6 +2,7 @@
 import { error, announce } from "../logger";
 import { getProcess } from "../db";
 import { isProcessRunning, calculateRuntime, parseEnvString } from "../utils";
+import { getProcessPorts } from "../platform";
 import chalk from "chalk";
 
 export async function showDetails(name: string) {
@@ -15,11 +16,18 @@ export async function showDetails(name: string) {
     const runtime = calculateRuntime(proc.timestamp);
     const envVars = parseEnvString(proc.env);
 
+    // Detect actual ports via OS
+    const ports = isRunning ? await getProcessPorts(proc.pid) : [];
+
+    const portDisplay = ports.length > 0
+        ? ports.map(p => chalk.hex('#FF6B6B')(`:${p}`)).join(', ')
+        : null;
+
     const details = `
 ${chalk.bold('Process Details:')}
 ${chalk.gray('═'.repeat(50))}
 ${chalk.cyan.bold('Name:')} ${proc.name}
-${chalk.yellow.bold('PID:')} ${proc.pid}
+${chalk.yellow.bold('PID:')} ${proc.pid}${portDisplay ? `\n${chalk.hex('#FF6B6B').bold('Port:')} ${portDisplay}` : ''}
 ${chalk.bold('Status:')} ${isRunning ? chalk.green.bold("● Running") : chalk.red.bold("○ Stopped")}
 ${chalk.magenta.bold('Runtime:')} ${runtime}
 ${chalk.blue.bold('Working Directory:')} ${proc.workdir}

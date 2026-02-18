@@ -1,5 +1,5 @@
-import { CommandOptions, ProcessRecord } from "../types";
-import { getDB, getProcess } from "../db";
+import type { CommandOptions, ProcessRecord } from "../types";
+import { getProcess } from "../db";
 import { isProcessRunning } from "../platform";
 import { error, announce } from "../logger";
 import { tailFile } from "../utils";
@@ -7,7 +7,7 @@ import { handleRun } from "./run";
 import * as fs from "fs";
 import { join } from "path";
 import path from "path";
-import chalk, { ChalkInstance } from "chalk";
+import chalk, { type ChalkInstance } from "chalk";
 
 export async function handleWatch(options: CommandOptions, logOptions: { showLogs: boolean; logType: 'stdout' | 'stderr' | 'both', lines?: number }) {
     let currentProcess: ProcessRecord | null = null;

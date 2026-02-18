@@ -111,9 +111,9 @@ export async function terminateProcess(pid: number, force: boolean = false): Pro
     try {
       if (isWindows()) {
         if (force) {
-          await $`taskkill /F /PID ${childPid}`.nothrow();
+          await $`taskkill /F /PID ${childPid}`.nothrow().quiet();
         } else {
-          await $`taskkill /PID ${childPid}`.nothrow();
+          await $`taskkill /PID ${childPid}`.nothrow().quiet();
         }
       } else {
         const signal = force ? 'KILL' : 'TERM';
@@ -132,9 +132,9 @@ export async function terminateProcess(pid: number, force: boolean = false): Pro
     try {
       if (isWindows()) {
         if (force) {
-          await $`taskkill /F /PID ${pid}`.nothrow();
+          await $`taskkill /F /PID ${pid}`.nothrow().quiet();
         } else {
-          await $`taskkill /PID ${pid}`.nothrow();
+          await $`taskkill /PID ${pid}`.nothrow().quiet();
         }
       } else {
         const signal = force ? 'KILL' : 'TERM';
@@ -147,24 +147,73 @@ export async function terminateProcess(pid: number, force: boolean = false): Pro
 }
 
 /**
- * Kill processes using a specific port
+ * Check if a port is free by attempting to bind to it.
+ */
+export async function isPortFree(port: number): Promise<boolean> {
+  try {
+    if (isWindows()) {
+      // On Windows, check netstat for anything LISTENING on this port
+      const result = await $`netstat -ano | findstr :${port}`.nothrow().quiet().text();
+      for (const line of result.split('\n')) {
+        // Only match exact port (avoid :35560 matching :3556)
+        const match = line.match(new RegExp(`:(${port})\\s+.*LISTENING`));
+        if (match) return false;
+      }
+      return true;
+    } else {
+      const result = await $`ss -tln sport = :${port}`.nothrow().quiet().text();
+      // If output has more than the header line, port is in use
+      const lines = result.trim().split('\n').filter(l => l.trim());
+      return lines.length <= 1;
+    }
+  } catch {
+    // If we can't check, assume it's free
+    return true;
+  }
+}
+
+/**
+ * Wait for a port to become free, polling with timeout.
+ * Returns true if port is free, false if timeout reached.
+ */
+export async function waitForPortFree(port: number, timeoutMs: number = 5000): Promise<boolean> {
+  const startTime = Date.now();
+  const pollInterval = 300;
+
+  while (Date.now() - startTime < timeoutMs) {
+    if (await isPortFree(port)) {
+      return true;
+    }
+    await Bun.sleep(pollInterval);
+  }
+  return false;
+}
+
+
+/**
+ * Kill processes using a specific port.
+ * Force-kills all processes bound to the port and verifies they're gone.
  */
 export async function killProcessOnPort(port: number): Promise<void> {
   try {
     if (isWindows()) {
       // On Windows, use netstat to find processes on port
-      const result = await $`netstat -ano | findstr :${port}`.nothrow().text();
+      const result = await $`netstat -ano | findstr :${port}`.nothrow().quiet().text();
       const pids = new Set<number>();
 
       for (const line of result.split('\n')) {
-        const match = line.match(/LISTENING\s+(\d+)/);
-        if (match) {
-          pids.add(parseInt(match[1]));
+        // Match exact port — avoid :35560 matching :3556
+        // Match any state (LISTENING, ESTABLISHED, TIME_WAIT, etc.)
+        const match = line.match(new RegExp(`:(${port})\\s+.*?\\s+(\\d+)\\s*$`));
+        if (match && parseInt(match[1]) === port) {
+          const pid = parseInt(match[2]);
+          if (pid > 0) pids.add(pid);
         }
       }
 
       for (const pid of pids) {
-        await $`taskkill /F /PID ${pid}`.nothrow();
+        // Force kill with /F /T (tree kill to get children too)
+        await $`taskkill /F /T /PID ${pid}`.nothrow().quiet();
         console.log(`Killed process ${pid} using port ${port}`);
       }
     } else {
@@ -173,7 +222,7 @@ export async function killProcessOnPort(port: number): Promise<void> {
       if (result.trim()) {
         const pids = result.trim().split('\n').filter(pid => pid);
         for (const pid of pids) {
-          await $`kill ${pid}`.nothrow();
+          await $`kill -9 ${pid}`.nothrow();
           console.log(`Killed process ${pid} using port ${port}`);
         }
       }
@@ -205,37 +254,91 @@ export function getShellCommand(command: string): string[] {
 }
 
 /**
- * Find the actual child process PID spawned by a shell wrapper
- * Returns the child PID or the original PID if no child found
+ * Find the actual child process PID spawned by a shell wrapper.
+ * Traverses the process tree recursively to find the deepest (leaf) child.
+ * On Windows, bgr spawn creates: cmd.exe → bgr.exe → bun.exe
+ * We need the bun.exe PID, not the intermediate bgr.exe.
  */
 export async function findChildPid(parentPid: number): Promise<number> {
-  try {
-    if (isWindows()) {
-      // Use PowerShell Get-CimInstance (wmic is deprecated)
-      const result = await $`powershell -Command "Get-CimInstance Win32_Process -Filter 'ParentProcessId=${parentPid}' | Select-Object -ExpandProperty ProcessId"`.nothrow().text();
-      const pids = result
-        .split('\n')
-        .map((line: string) => parseInt(line.trim()))
-        .filter((n: number) => !isNaN(n) && n > 0);
+  let currentPid = parentPid;
+  const maxDepth = 5; // Safety limit to avoid infinite loops
 
-      // Return first child PID if found
-      if (pids.length > 0) {
-        return pids[0];
+  for (let depth = 0; depth < maxDepth; depth++) {
+    try {
+      let childPids: number[] = [];
+
+      if (isWindows()) {
+        const result = await $`powershell -Command "Get-CimInstance Win32_Process -Filter 'ParentProcessId=${currentPid}' | Select-Object -ExpandProperty ProcessId"`.nothrow().text();
+        childPids = result
+          .split('\n')
+          .map((line: string) => parseInt(line.trim()))
+          .filter((n: number) => !isNaN(n) && n > 0);
+      } else {
+        const result = await $`ps --no-headers -o pid --ppid ${currentPid}`.nothrow().text();
+        childPids = result
+          .trim()
+          .split('\n')
+          .map(line => parseInt(line.trim()))
+          .filter(n => !isNaN(n) && n > 0);
       }
-    } else {
-      // Unix - use ps to find child
-      const result = await $`ps --no-headers -o pid --ppid ${parentPid}`.nothrow().text();
-      const childPid = parseInt(result.trim());
-      if (!isNaN(childPid) && childPid > 0) {
-        return childPid;
+
+      if (childPids.length === 0) {
+        // No children — currentPid is the leaf process
+        break;
       }
+
+      // Follow the first child deeper
+      currentPid = childPids[0];
+    } catch {
+      break;
     }
-  } catch {
-    // Ignore errors
   }
-  return parentPid;
+
+  return currentPid;
 }
 
+/**
+ * Wait for a port to become active and return the PID listening on it.
+ * More reliable than findChildPid since it waits for the actual server
+ * to bind the port rather than racing the process tree traversal.
+ */
+export async function findPidByPort(port: number, maxWaitMs = 8000): Promise<number | null> {
+  const start = Date.now();
+  const pollMs = 500;
+
+  while (Date.now() - start < maxWaitMs) {
+    try {
+      if (isWindows()) {
+        const result = await $`netstat -ano`.nothrow().quiet().text();
+        for (const line of result.split('\n')) {
+          if (line.includes(`:${port}`) && line.includes('LISTENING')) {
+            const parts = line.trim().split(/\s+/);
+            const pid = parseInt(parts[parts.length - 1]);
+            if (!isNaN(pid) && pid > 0) return pid;
+          }
+        }
+      } else {
+        try {
+          const result = await $`ss -tlnp`.nothrow().quiet().text();
+          for (const line of result.split('\n')) {
+            if (line.includes(`:${port}`)) {
+              const pidMatch = line.match(/pid=(\d+)/);
+              if (pidMatch) return parseInt(pidMatch[1]);
+            }
+          }
+        } catch { /* ss not available, try lsof */ }
+
+        const result = await $`lsof -iTCP:${port} -sTCP:LISTEN -t`.nothrow().quiet().text();
+        const pid = parseInt(result.trim());
+        if (!isNaN(pid) && pid > 0) return pid;
+      }
+    } catch { /* retry */ }
+
+    await new Promise(resolve => setTimeout(resolve, pollMs));
+  }
+
+  return null;
+}
 
 export async function readFileTail(filePath: string, lines?: number): Promise<string> {
   try {
@@ -281,6 +384,57 @@ export async function getProcessMemory(pid: number): Promise<number> {
     }
   } catch {
     return 0;
+  }
+}
+
+/**
+ * Get the TCP ports a process is currently listening on by querying the OS.
+ * Returns an array of port numbers (empty if none or process not found).
+ */
+export async function getProcessPorts(pid: number): Promise<number[]> {
+  try {
+    if (isWindows()) {
+      // netstat -ano lists all connections with PIDs
+      const result = await $`netstat -ano`.nothrow().quiet().text();
+      const ports = new Set<number>();
+      for (const line of result.split('\n')) {
+        // Match lines like: TCP    0.0.0.0:3556    0.0.0.0:0    LISTENING    8608
+        const match = line.match(/^\s*TCP\s+\S+:(\d+)\s+\S+\s+LISTENING\s+(\d+)/);
+        if (match && parseInt(match[2]) === pid) {
+          ports.add(parseInt(match[1]));
+        }
+      }
+      return Array.from(ports);
+    } else {
+      // Unix: use ss (modern) with fallback to lsof
+      try {
+        const result = await $`ss -tlnp`.nothrow().quiet().text();
+        const ports = new Set<number>();
+        for (const line of result.split('\n')) {
+          if (line.includes(`pid=${pid}`)) {
+            const portMatch = line.match(/:(\d+)\s/);
+            if (portMatch) {
+              ports.add(parseInt(portMatch[1]));
+            }
+          }
+        }
+        if (ports.size > 0) return Array.from(ports);
+      } catch { /* ss not available, try lsof */ }
+
+      const result = await $`lsof -i -P -n -p ${pid}`.nothrow().quiet().text();
+      const ports = new Set<number>();
+      for (const line of result.split('\n')) {
+        if (line.includes('LISTEN')) {
+          const portMatch = line.match(/:(\d+)\s+\(LISTEN\)/);
+          if (portMatch) {
+            ports.add(parseInt(portMatch[1]));
+          }
+        }
+      }
+      return Array.from(ports);
+    }
+  } catch {
+    return [];
   }
 }
 

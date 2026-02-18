@@ -1,22 +1,17 @@
-import { handleRun } from '../../../src/commands/run';
+/**
+ * POST /api/start — Create or start a process
+ */
+import { handleRun } from 'bgr';
 
 export async function POST(req: Request) {
     const body = await req.json();
-
-    // Validate required fields
-    if (!body.name || !body.command) {
-        return Response.json({
-            error: "Name and command are required"
-        }, { status: 400 });
-    }
 
     try {
         await handleRun({
             action: 'run',
             name: body.name,
             command: body.command,
-            // Default to current working directory if not provided
-            directory: body.directory || process.cwd(),
+            directory: body.directory,
             force: body.force || false,
             remoteName: '',
         });

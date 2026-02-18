@@ -1,396 +1,720 @@
-# BGR: Background Runner
+<![CDATA[<div align="center">
 
-[![bun](https://img.shields.io/badge/powered%20by-bun-F7A41D)](https://bun.sh/)
+# 🦎 BGR
 
-A powerful process manager built with Bun for managing long-running processes with advanced features like auto-restart, file watching, and integration with Bun's execution model.
+**Background Runner — a modern process manager built on Bun**
 
-## Installation
+[![npm](https://img.shields.io/npm/v/bgr?color=F7A41D&label=npm&logo=npm)](https://www.npmjs.com/package/bgr)
+[![bun](https://img.shields.io/badge/runtime-bun-F7A41D?logo=bun)](https://bun.sh/)
+[![license](https://img.shields.io/npm/l/bgr)](./LICENSE)
 
-### Prerequisites
+Start, stop, restart, and monitor any process — from dev servers to Docker containers.
+Zero config. One command. Beautiful dashboard included.
 
-- [Bun](https://bun.sh) v1.0.0 or higher
-
-### Install
-
-```bash
-bun install -g bgr@latest
+```
+bun install -g bgr
 ```
 
-### Development
+</div>
+
+---
+
+## Why BGR?
+
+| Feature | PM2 | bgr |
+|---------|-----|-----|
+| Runtime | Node.js | Bun (5× faster startup) |
+| Install | `npm i -g pm2` (50+ deps) | `bun i -g bgr` (minimal deps) |
+| Config format | JSON / JS / YAML | TOML (or none at all) |
+| Dashboard | `pm2 monit` (TUI) | `bgr --dashboard` (full web UI) |
+| Language support | Any | Any |
+| Docker-aware | ❌ | ✅ detects container status |
+| Port management | Manual | Auto-detect & cleanup |
+| File watching | Built-in | Built-in |
+| Programmatic API | ✅ | ✅ (first-class TypeScript) |
+| Process persistence | ✅ | ✅ (SQLite) |
+
+---
+
+## Quick Start
 
 ```bash
-git clone https://github.com/7flash/bgr.git
-cd bgr
-bun install
-bun link
-```
+# Install globally
+bun install -g bgr
 
-## Features
+# Start a process
+bgr --name my-api --directory ./my-project --command "bun run server.ts"
 
-- **Advanced process management** with database persistence
-- **Auto-restart** with file watching for development
-- **Environment variable management** from TOML config files
-- **Process monitoring** and status tracking
-- **Automatic port cleanup** on force restart
-- **Git integration** with automatic pull on `--fetch`
-- **Group filtering** and JSON output
-- **Structured logging** with custom log paths
-
-## Usage
-
-### Process Management
-
-```bash
 # List all processes
 bgr
 
-# List processes filtered by group
-bgr --filter api
-
-# List processes in JSON format
-bgr --json
-
-# View process details
-bgr myapp
-
-# Show process logs
-bgr myapp --logs --lines 50
-
-# View only stdout logs
-bgr myapp --logs --log-stdout
-
-# View only stderr logs  
-bgr myapp --logs --log-stderr
+# Open the web dashboard
+bgr --dashboard
 ```
 
-### Starting Processes
+That's it. BGR tracks the PID, captures stdout/stderr, detects the port, and survives terminal close.
+
+---
+
+## Table of Contents
+
+- [Core Commands](#core-commands)
+- [Dashboard](#dashboard)
+- [File Watching](#file-watching)
+- [Port Handling](#port-handling)
+- [Docker Integration](#docker-integration)
+- [Caddy Reverse Proxy](#caddy-reverse-proxy)
+- [TOML Configuration](#toml-configuration)
+- [Programmatic API](#programmatic-api)
+- [Migrating from PM2](#migrating-from-pm2)
+- [Edge Cases & Behaviors](#edge-cases--behaviors)
+- [Full CLI Reference](#full-cli-reference)
+
+---
+
+## Core Commands
+
+### Starting a process
 
 ```bash
-# Basic process start
-bgr --name myapp --directory /path/to/project --command "npm start"
-
-# Start with file watching (auto-restart on changes)
-bgr --name myapp --directory ./myapp --command "bun run dev" --watch
-
-# Start with config file for environment variables
-bgr --name myapp --directory ./myapp --command "bun run server" --config production.toml
-
-# Force restart (kills existing process and port conflicts)
-bgr --name myapp --directory ./myapp --command "bun run server" --force
-
-# Start with automatic git pull
-bgr --name myapp --directory ./myapp --command "bun run server" --fetch
+bgr --name my-api \
+    --directory ~/projects/my-api \
+    --command "bun run server.ts"
 ```
 
-### Process Control
+Short form — if you're already *in* the project directory:
 
 ```bash
-# Restart process
-bgr myapp --restart
-
-# Delete specific process
-bgr --delete myapp
-
-# Clean stopped processes
-bgr --clean
-
-# Delete ALL processes
-bgr --nuke
+bgr --name my-api --command "bun run server.ts"
+# bgr uses current directory by default
 ```
 
-## Advanced Usage
-
-### Development with Auto-Restart
-
-BGR excels at development workflows with its `--watch` mode:
+### Listing processes
 
 ```bash
-# Frontend development with auto-restart and logs
+bgr                  # Pretty table
+bgr --json           # Machine-readable JSON
+bgr --filter api     # Filter by group (BGR_GROUP env)
+```
+
+### Viewing a process
+
+```bash
+bgr my-api           # Show status, PID, port, runtime, command
+bgr my-api --logs    # Show stdout + stderr interleaved
+bgr my-api --logs --log-stdout --lines 50  # Last 50 stdout lines only
+```
+
+### Stopping, restarting, deleting
+
+```bash
+bgr --stop my-api       # Graceful stop (SIGTERM → SIGKILL)
+bgr --restart my-api     # Stop then start again with same command
+bgr --delete my-api      # Stop and remove from database
+bgr --clean              # Remove all stopped processes
+bgr --nuke               # ☠️  Delete everything
+```
+
+### Force restart
+
+When a process is stuck or its port is orphaned:
+
+```bash
+bgr --name my-api --command "bun run server.ts" --force
+```
+
+`--force` will:
+1. Kill the existing process by PID
+2. Detect all ports it was using (via OS `netstat`)
+3. Kill any zombie processes still holding those ports
+4. Wait for ports to free up
+5. Start fresh
+
+---
+
+## Dashboard
+
+BGR ships with a built-in web dashboard for managing all your processes visually.
+
+```bash
+bgr --dashboard
+```
+
+The dashboard provides:
+- **Real-time process table** with status, PID, port, runtime
+- **Start/stop/restart/delete** actions with one click
+- **Log viewer** with monospace display and auto-scroll
+- **Process detail drawer** with stdout/stderr tabs
+- **Auto-refresh** every 3 seconds
+
+### Dashboard port selection
+
+The dashboard uses [Melina.js](https://github.com/7flash/melina.js) for serving and follows smart port selection:
+
+| Scenario | Behavior |
+|----------|----------|
+| `bgr --dashboard` | Starts on port 3000. If busy, auto-falls back to 3001, 3002, etc. |
+| `BUN_PORT=4000 bgr --dashboard` | Starts on port 4000. Fails with error if port is busy. |
+| `bgr --dashboard --port 5000` | Same as `BUN_PORT=5000` — explicit, no fallback. |
+| Dashboard already running | Prints current URL and PID instead of starting a second instance. |
+
+The actual port is always detected from the running process and displayed correctly in `bgr` output.
+
+---
+
+## File Watching
+
+For development, BGR can watch for file changes and auto-restart:
+
+```bash
 bgr --name frontend \
     --directory ~/projects/frontend \
-    --command "bun run --watch dev" \
-    --watch \
-    --logs \
-    --log-stdout \
-    --lines 20
+    --command "bun run dev" \
+    --watch
+```
 
-# Backend API with file watching and environment
+This monitors the working directory for changes and restarts the process when files are modified. Combine with `--force` to ensure clean restarts:
+
+```bash
 bgr --name api \
-    --directory ~/projects/api \
-    --command "bun run src/server.ts" \
+    --command "bun run server.ts" \
     --watch \
-    --config .config.toml \
+    --force \
+    --config .dev.toml
+```
+
+---
+
+## Port Handling
+
+BGR automatically detects which TCP ports a process is listening on by querying the OS. This means:
+
+- **No port configuration needed** — BGR discovers ports from `netstat`
+- **No environment variable assumptions** — BGR doesn't guess `PORT` or `BUN_PORT`
+- **Clean restarts** — `--force` kills all orphaned port bindings before restarting
+- **Accurate display** — the port shown in `bgr` output is the *actual* bound port
+
+### How it works
+
+```
+1. bgr spawns your process
+2. Process starts and binds to a port (however it wants)
+3. bgr queries `netstat -ano` (Windows) or `ss -tlnp` (Linux)
+4. bgr finds all TCP LISTEN ports for the process PID
+5. These ports are displayed in the table and used for cleanup
+```
+
+### Port conflict resolution
+
+If you `--force` restart a process and its old port is still held by a zombie:
+
+```
+1. bgr detects ports held by the old PID
+2. Sends SIGTERM to the old process
+3. Kills any remaining processes on those ports
+4. Waits for ports to become free (up to 5 seconds)
+5. Starts the new process
+```
+
+---
+
+## Docker Integration
+
+BGR can manage Docker containers alongside regular processes:
+
+```bash
+# Start a Postgres container
+bgr --name postgres \
+    --command "docker run --name bgr-postgres -p 5432:5432 -e POSTGRES_PASSWORD=secret postgres:16"
+
+# Start a Redis container
+bgr --name redis \
+    --command "docker run --name bgr-redis -p 6379:6379 redis:7-alpine"
+```
+
+### How BGR handles Docker
+
+BGR is **Docker-aware** — when it detects a `docker run` command, it:
+
+1. **Checks container status** via `docker inspect` instead of checking the PID
+2. **Handles container lifecycle** — stops containers with `docker stop` on `bgr --stop`
+3. **Reports correct status** — shows Running/Stopped based on container state, not process state
+
+### Docker Compose alternative
+
+Instead of `docker-compose.yml`, use BGR to orchestrate containers alongside your app:
+
+```bash
+#!/bin/bash
+# start-stack.sh
+
+# Database
+bgr --name db \
+    --command "docker run --name bgr-db -p 5432:5432 \
+              -v pgdata:/var/lib/postgresql/data \
+              -e POSTGRES_DB=myapp \
+              -e POSTGRES_PASSWORD=secret \
+              postgres:16" \
+    --force
+
+# Cache
+bgr --name cache \
+    --command "docker run --name bgr-cache -p 6379:6379 redis:7-alpine" \
+    --force
+
+# Your app (not Docker, just a regular process)
+bgr --name api \
+    --directory ~/projects/my-api \
+    --command "bun run server.ts" \
+    --config production.toml \
+    --force
+
+# See everything
+bgr
+```
+
+The advantage over Docker Compose: your app processes and Docker containers are managed in the **same place** with the **same commands**.
+
+---
+
+## Caddy Reverse Proxy
+
+BGR pairs naturally with [Caddy](https://caddyserver.com/) for production deployments with automatic HTTPS.
+
+### Basic setup
+
+```bash
+# Start your app on any port (BGR detects it)
+bgr --name my-api --command "bun run server.ts" --force
+
+# Check which port it got
+bgr
+# → my-api  ● Running  :3000  bun run server.ts
+```
+
+**Caddyfile:**
+
+```caddy
+api.example.com {
+    reverse_proxy localhost:3000
+}
+
+dashboard.example.com {
+    reverse_proxy localhost:3001
+}
+```
+
+### Multi-service setup
+
+```bash
+# Start services
+bgr --name api       --command "bun run api/server.ts"     --force
+bgr --name frontend  --command "bun run frontend/server.ts" --force
+bgr --name admin     --command "bun run admin/server.ts"    --force
+
+# Start dashboard
+bgr --dashboard
+```
+
+**Caddyfile:**
+
+```caddy
+api.example.com {
+    reverse_proxy localhost:3000
+}
+
+app.example.com {
+    reverse_proxy localhost:3001
+}
+
+admin.example.com {
+    reverse_proxy localhost:3002
+}
+
+status.example.com {
+    reverse_proxy localhost:3003  # BGR dashboard
+}
+```
+
+### Managing Caddy with BGR
+
+You can even manage Caddy itself as a BGR process:
+
+```bash
+bgr --name caddy \
+    --directory /etc/caddy \
+    --command "caddy run --config Caddyfile" \
     --force
 ```
 
-### Production Deployment
+Now `bgr` shows your entire stack — app servers, databases, and reverse proxy — in one place.
+
+---
+
+## TOML Configuration
+
+BGR loads TOML config files and flattens them into environment variables:
 
 ```bash
-# Start production service
-bgr --name production-api \
-    --directory /var/www/api \
-    --command "bun run src/server.ts" \
-    --config production.toml \
-    --fetch \
-    --stdout /var/log/bgr/api-out.log \
-    --stderr /var/log/bgr/api-err.log
-
-# Multiple services in same group
-BGR_GROUP=api bgr --name auth-api --directory ./auth --command "bun run server"
-BGR_GROUP=api bgr --name user-api --directory ./users --command "bun run server"
-
-# Filter by group
-bgr --filter api
+bgr --name api --command "bun run server.ts" --config production.toml
 ```
-
-### Advanced Process Spawning
-
-The key advantage of BGR over traditional process managers is how easily you can spawn managed processes from within your scripts:
-
-```typescript
-import { $ } from "bun";
-
-// Start a managed trader agent from your script
-await Bun.$`bgr --name ${traderName} --directory ${process.env.HOME}/Documents/trader-agent --command "bun run src/index.ts" --config ${traderName}.toml --force`;
-
-// Multiple managed processes
-await Promise.all([
-  Bun.$`bgr --name api-server --directory ./api --command "bun run server" --config api.toml`,
-  Bun.$`bgr --name worker --directory ./workers --command "bun run worker" --config worker.toml`,
-]);
-
-// Restart processes programmatically
-await Bun.$`bgr --restart api-server`;
-await Bun.$`bgr --force restart worker`;
-```
-
-## Why BGR is Better than Alternatives
-
-### vs Simple Spawning
-
-**Simple spawning:**
-```typescript
-const child = Bun.spawn(["node", "script.js"]);
-```
-
-**Problems:**
-- No automatic restart if process crashes
-- No port conflict resolution
-- No environment variable management
-- No log capture
-- No process status tracking
-
-**BGR approach:**
-```typescript
-await Bun.$`bgr --name myapp --command "bun run script" --force`;
-```
-- Auto-restart on crash via guard.ts
-- Automatic port cleanup
-- Config-based environment variables
-- Structured logging
-- Persistent process tracking
-
-### vs Workers
-
-**Workers limitations:**
-- Single memory space, isolation challenges
-- Limited to Node.js/Bun environment
-- Complex inter-process communication
-- Resource management issues
-
-**BGR advantages:**
-- True process isolation
-- Any executable or script
-- Simple inter-process communication via file system
-- Better resource management
-- Cross-language compatibility
-
-### vs PM2/Process Managers
-
-**Traditional process managers:**
-- Heavy dependencies
-- Complex configuration
-- Node.js only
-- Slower startup
-- Complex API
-
-**BGR benefits:**
-- Built on Bun - ultra-fast startup
-- Simple CLI and API
-- Language agnostic
-- Lightweight dependencies
-- Native Bun features
-
-## Configuration
-
-### TOML Config Files
-
-BGR automatically loads TOML configuration files and converts them to environment variables:
 
 ```toml
-# .config.toml
+# production.toml
 [server]
 port = 3000
 host = "0.0.0.0"
-timeout = 30000
 
 [database]
 url = "postgresql://localhost/myapp"
 pool_size = 10
-connection_timeout = 5000
 
-[logging]
-level = "info"
-format = "json"
+[auth]
+jwt_secret = "your-secret-here"
+session_ttl = 3600
 ```
 
-**Becomes environment variables:**
-- `SERVER_PORT=3000`
-- `SERVER_HOST=0.0.0.0`
-- `SERVER_TIMEOUT=30000`
-- `DATABASE_URL=postgresql://localhost/myapp`
-- `DATABASE_POOL_SIZE=10`
-- `DATABASE_CONNECTION_TIMEOUT=5000`
-- `LOGGING_LEVEL=info`
-- `LOGGING_FORMAT=json`
+**Becomes:**
+```
+SERVER_PORT=3000
+SERVER_HOST=0.0.0.0
+DATABASE_URL=postgresql://localhost/myapp
+DATABASE_POOL_SIZE=10
+AUTH_JWT_SECRET=your-secret-here
+AUTH_SESSION_TTL=3600
+```
 
-### Environment Variables
+The convention: `[section]` becomes the prefix, `key` becomes the suffix, joined with `_`, uppercased.
+
+If no `--config` is specified, BGR looks for `.config.toml` in the working directory automatically.
+
+---
+
+## Programmatic API
+
+BGR exposes its internals as importable TypeScript functions:
 
 ```bash
-# Custom database path
-DB_NAME=myapp bgr
-
-# Process grouping
-BGR_GROUP=production bgr --name api-server --command "bun run server"
+bun add bgr
 ```
+
+### Process management
+
+```typescript
+import {
+  getAllProcesses,
+  getProcess,
+  isProcessRunning,
+  terminateProcess,
+  handleRun,
+  getProcessPorts,
+  readFileTail,
+  calculateRuntime,
+} from 'bgr'
+
+// List all processes
+const procs = getAllProcesses()
+
+// Start a process programmatically
+await handleRun({
+  action: 'run',
+  name: 'my-api',
+  command: 'bun run server.ts',
+  directory: '/path/to/project',
+  force: true,
+  remoteName: '',
+})
+
+// Check status
+const proc = getProcess('my-api')
+if (proc) {
+  const alive = await isProcessRunning(proc.pid)
+  const ports = await getProcessPorts(proc.pid)
+  const runtime = calculateRuntime(proc.timestamp)
+  console.log({ alive, ports, runtime })
+}
+
+// Read logs
+const proc = getProcess('my-api')
+if (proc) {
+  const stdout = await readFileTail(proc.stdout_path, 100) // last 100 lines
+  const stderr = await readFileTail(proc.stderr_path, 100)
+}
+
+// Stop a process
+await terminateProcess(proc.pid)
+```
+
+### Build a custom dashboard
+
+```typescript
+import { getAllProcesses, isProcessRunning, calculateRuntime } from 'bgr'
+
+// Express/Hono/Elysia endpoint
+export async function GET() {
+  const procs = getAllProcesses()
+  const enriched = await Promise.all(
+    procs.map(async (p) => ({
+      name: p.name,
+      pid: p.pid,
+      running: await isProcessRunning(p.pid),
+      runtime: calculateRuntime(p.timestamp),
+    }))
+  )
+  return Response.json(enriched)
+}
+```
+
+---
+
+## Migrating from PM2
+
+If you're coming from PM2, here's a direct mapping of commands:
+
+### Command mapping
+
+| PM2 | BGR |
+|-----|-----|
+| `pm2 start app.js --name api` | `bgr --name api --command "node app.js"` |
+| `pm2 start app.js -i max` | *(cluster mode not supported — use multiple named processes)* |
+| `pm2 list` | `bgr` |
+| `pm2 show api` | `bgr api` |
+| `pm2 logs api` | `bgr api --logs` |
+| `pm2 logs api --lines 50` | `bgr api --logs --lines 50` |
+| `pm2 stop api` | `bgr --stop api` |
+| `pm2 restart api` | `bgr --restart api` |
+| `pm2 delete api` | `bgr --delete api` |
+| `pm2 flush` | `bgr --clean` |
+| `pm2 kill` | `bgr --nuke` |
+| `pm2 monit` | `bgr --dashboard` |
+| `pm2 save` / `pm2 resurrect` | *(automatic — processes persist in SQLite)* |
+
+### ecosystem.config.js → TOML + shell script
+
+**PM2 ecosystem file:**
+
+```javascript
+// ecosystem.config.js
+module.exports = {
+  apps: [
+    {
+      name: 'api',
+      script: 'server.js',
+      cwd: './api',
+      env: { PORT: 3000, NODE_ENV: 'production' },
+    },
+    {
+      name: 'worker',
+      script: 'worker.js',
+      cwd: './workers',
+      env: { QUEUE: 'default' },
+    },
+  ],
+}
+```
+
+**BGR equivalent:**
+
+```toml
+# api.toml
+[server]
+port = 3000
+
+[node]
+env = "production"
+```
+
+```bash
+#!/bin/bash
+# start.sh
+bgr --name api    --directory ./api     --command "node server.js" --config api.toml --force
+bgr --name worker --directory ./workers --command "node worker.js" --force
+```
+
+### Key differences
+
+1. **No cluster mode** — BGR manages independent processes. For multi-core, run multiple named instances (`api-1`, `api-2`) behind a load balancer.
+
+2. **No `pm2 startup`** — BGR doesn't install itself as a system service. Use your OS init system (systemd, launchd, Windows Task Scheduler) to run BGR at boot:
+
+   ```ini
+   # /etc/systemd/system/bgr-api.service
+   [Unit]
+   Description=My API via BGR
+
+   [Service]
+   ExecStart=/usr/local/bin/bgr --name api --directory /var/www/api --command "bun run server.ts" --force
+   Restart=always
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+3. **No log rotation** — BGR writes to plain text files in `~/.bgr/`. Use `logrotate` or similar tools, or specify custom log paths with `--stdout` and `--stderr`.
+
+4. **Bun required** — BGR runs on Bun, but the *processes it manages* can be anything: Node.js, Python, Ruby, Go, Docker, shell scripts.
+
+---
+
+## Edge Cases & Behaviors
+
+### What happens when a process crashes?
+
+BGR records the process as **Stopped**. The PID and log files are preserved so you can inspect what happened:
+
+```bash
+bgr my-api --logs --log-stderr
+```
+
+For auto-restart on crash, use the guard script:
+
+```bash
+bun run guard.ts my-api 30  # Check every 30 seconds, restart if dead
+```
+
+### What happens on `bgr --force` if the port is stuck?
+
+BGR queries the OS for all TCP ports held by the old PID, kills them, and waits up to 5 seconds for cleanup. If ports are still held after that, the new process starts anyway (and will likely pick a different port).
+
+### What happens if I start two processes with the same name?
+
+The new process replaces the old one. If the old one is still running, use `--force` to kill it first. Without `--force`, BGR will refuse to start if a process with that name is already running.
+
+### What happens if BGR itself is killed?
+
+The managed processes keep running — they're independent OS processes. When you run `bgr` again, it reconnects to the SQLite database and checks which PIDs are still alive. Dead processes are marked as **Stopped**.
+
+### What about Windows?
+
+BGR works on Windows. Process management uses `taskkill` and `wmic` instead of Unix signals. Port detection uses `netstat -ano`. The dashboard runs in your browser, so it works everywhere.
+
+### Can I manage processes on a remote server?
+
+Not directly — BGR manages processes on the local machine. For remote management, run BGR on the remote server and expose the dashboard behind a reverse proxy (see [Caddy section](#caddy-reverse-proxy)).
+
+---
+
+## Custom Log Paths
+
+By default, logs go to `~/.bgr/<name>-out.txt` and `~/.bgr/<name>-err.txt`. Override with:
+
+```bash
+bgr --name api \
+    --command "bun run server.ts" \
+    --stdout /var/log/api/stdout.log \
+    --stderr /var/log/api/stderr.log
+```
+
+---
+
+## Process Groups
+
+Tag processes with `BGR_GROUP` to organize and filter them:
+
+```bash
+BGR_GROUP=prod bgr --name api         --command "bun run server.ts" --force
+BGR_GROUP=prod bgr --name worker      --command "bun run worker.ts" --force
+BGR_GROUP=dev  bgr --name dev-server  --command "bun run dev"       --force
+
+# Show only production processes
+bgr --filter prod
+
+# Show only dev processes
+bgr --filter dev
+```
+
+---
+
+## Git Integration
+
+Pull the latest changes before starting:
+
+```bash
+bgr --name api \
+    --directory ~/projects/api \
+    --command "bun run server.ts" \
+    --fetch \
+    --force
+```
+
+`--fetch` runs `git pull` in the working directory before starting the process. Combine with `--force` for a clean deploy workflow:
+
+```bash
+# Deploy script
+bgr --name api --directory /var/www/api --command "bun run server.ts" --fetch --force
+```
+
+---
 
 ## File Structure
 
 ```
 ~/.bgr/
-├── bgr.sqlite              # Process database
-├── myapp-out.txt          # stdout logs
-├── myapp-err.txt          # stderr logs
-└── backup/                # Historical logs
-    ├── myapp-out-2024-01-01.txt
-    └── myapp-err-2024-01-01.txt
+├── bgr.sqlite              # Process database (SQLite)
+├── myapp-out.txt           # stdout logs
+├── myapp-err.txt           # stderr logs
+├── bgr-dashboard-out.txt   # Dashboard stdout
+└── bgr-dashboard-err.txt   # Dashboard stderr
 ```
 
-## Guard Process for Auto-Restart
+All state lives in `~/.bgr/`. To reset everything, delete this directory.
 
-For critical processes, use the guard script to automatically restart them if they stop:
+---
 
-```bash
-# Monitor a process and restart it if it crashes
-bun run guard.ts myapp 30
+## Full CLI Reference
 
-# Monitor every 30 seconds and auto-restart
-```
-
-## Advanced Examples
-
-### Multi-Service Development
-
-```bash
-# Start all services
-BGR_GROUP=dev bgr --name frontend --directory ./frontend --command "bun run dev --watch" --watch --force
-BGR_GROUP=dev bgr --name backend --directory ./backend --command "bun run --watch server.ts" --watch --config .dev.toml
-BGR_GROUP=dev bgr --name database --directory ./ --command "docker run -p 5432:5432 postgres:15"
-
-# View all dev services
-bgr --filter dev
-
-# Restart specific service
-bgr --restart backend
-```
-
-### Production Architecture
-
-```bash
-# Start production services
-bgr --name main-api --directory /var/api --command "bun run server" --config prod.toml --fetch --stdout /var/log/main-api.log --stderr /var/log/main-api.err
-bgr --name cache-server --directory /var/cache --command "redis-server" --config redis.toml
-bgr --name background-worker --directory /var/workers --command "bun run worker" --config worker.toml --force
-
-# Monitor services
-while true; do
-  bgr --json | jq '.[] | select(.status == "running") | .name'
-  sleep 60
-done
-```
-
-### Dynamic Process Management
-
-```typescript
-// orchestrator.ts
-import { $ } from "bun";
-
-class ServiceOrchestrator {
-  async startService(name: string, config: ServiceConfig) {
-    await Bun.$`bgr --name ${name} --directory ${config.directory} --command "${config.command}" --config ${config.config} --force`;
-  }
-
-  async restartService(name: string) {
-    await Bun.$`bgr --restart ${name}`;
-  }
-
-  async stopService(name: string) {
-    await Bun.$`bgr --delete ${name}`;
-  }
-
-  async getHealthCheck() {
-    const result = await Bun.$`bgr --json`.json();
-    return result.filter((p: any) => p.status === "running");
-  }
-}
-
-// Usage
-const orchestrator = new ServiceOrchestrator();
-await orchestrator.startService("api", {
-  directory: "./api",
-  command: "bun run server",
-  config: "production.toml"
-});
-```
-
-## API Reference
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--name <name>` | Process name | *(required for start)* |
+| `--directory <path>` | Working directory | Current directory |
+| `--command <cmd>` | Command to execute | *(required for start)* |
+| `--config <path>` | TOML config file for env vars | `.config.toml` |
+| `--force` | Kill existing process and ports before starting | `false` |
+| `--fetch` | Git pull before starting | `false` |
+| `--watch` | Auto-restart on file changes | `false` |
+| `--stdout <path>` | Custom stdout log path | `~/.bgr/<name>-out.txt` |
+| `--stderr <path>` | Custom stderr log path | `~/.bgr/<name>-err.txt` |
+| `--db <path>` | Custom SQLite database path | `~/.bgr/bgr.sqlite` |
+| `--json` | Output process list as JSON | `false` |
+| `--filter <group>` | Filter by `BGR_GROUP` | *(show all)* |
+| `--logs` | Show process logs | `false` |
+| `--log-stdout` | Show only stdout | `false` |
+| `--log-stderr` | Show only stderr | `false` |
+| `--lines <n>` | Number of log lines | All |
+| `--stop <name>` | Stop a process | - |
+| `--restart <name>` | Restart a process | - |
+| `--delete <name>` | Delete a process | - |
+| `--clean` | Remove stopped processes | - |
+| `--nuke` | Delete ALL processes | - |
+| `--dashboard` | Launch web dashboard | - |
+| `--version` | Show version | - |
+| `--help` | Show help | - |
 
 ### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DB_NAME` | Custom database name | `bgr` |
-| `BGR_GROUP` | Process grouping for filtering | - |
+| `DB_NAME` | Custom database file name | `bgr` |
+| `BGR_GROUP` | Assign process to a group | *(none)* |
+| `BUN_PORT` | Dashboard port (explicit, no fallback) | *(auto: 3000+)* |
 
-### Command Options
+---
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--name <name>` | Process name | Required |
-| `--directory <path>` | Working directory | Required |
-| `--command <cmd>` | Command to execute | Required |
-| `--config <path>` | Config file path | `.config.toml` |
-| `--force` | Force restart running process | `false` |
-| `--fetch` | Pull latest git changes | `false` |
-| `--watch` | Watch for file changes and auto-restart | `false` |
-| `--stdout <path>` | Custom stdout log path | `~/.bgr/<name>-out.txt` |
-| `--stderr <path>` | Custom stderr log path | `~/.bgr/<name>-err.txt` |
-| `--db <path>` | Custom database path | `~/.bgr/bgr.sqlite` |
-| `--json` | Output in JSON format | `false` |
-| `--filter <group>` | Filter by BGR_GROUP | - |
-| `--logs` | Show process logs | `false` |
-| `--log-stdout` | Show only stdout logs | `false` |
-| `--log-stderr` | Show only stderr logs | `false` |
-| `--lines <number>` | Number of log lines to show | All |
-| `--help` | Show help | - |
-| `--version` | Show version | - |
+## Requirements
 
-## Testing
+- [Bun](https://bun.sh) v1.0.0+
 
-```bash
-bun test
-```
+---
 
 ## License
 
 MIT
+
+---
+
+<div align="center">
+
+Built by [Mements](https://github.com/Mements) with ⚡ Bun
+
+</div>
+]]>

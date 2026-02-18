@@ -1,6 +1,6 @@
 import { CommandOptions } from "../types";
-import { getProcess, removeProcess, retryDatabaseOperation, insertProcess } from "../db";
-import { isProcessRunning, terminateProcess, getHomeDir, getShellCommand, killProcessOnPort, findChildPid } from "../platform";
+import { getProcess, removeProcessByName, retryDatabaseOperation, insertProcess } from "../db";
+import { isProcessRunning, terminateProcess, getHomeDir, getShellCommand, killProcessOnPort, findChildPid, getProcessPorts, waitForPortFree } from "../platform";
 import { error, announce } from "../logger";
 import { validateDirectory, parseEnvString } from "../utils";
 import { parseConfigFile } from "../config";
@@ -21,6 +21,9 @@ export async function handleRun(options: CommandOptions) {
         $.cwd(finalDirectory);
 
         if (fetch) {
+            if (!require('fs').existsSync(require('path').join(finalDirectory, '.git'))) {
+                error(`Cannot --fetch: '${finalDirectory}' is not a Git repository.`);
+            }
             try {
                 await $`git fetch origin`;
                 const localHash = (await $`git rev-parse HEAD`.text()).trim();
@@ -40,15 +43,34 @@ export async function handleRun(options: CommandOptions) {
             error(`Process '${name}' is currently running. Use --force to restart.`);
         }
 
+        // Detect ports BEFORE killing so we can clean them up
+        let detectedPorts: number[] = [];
+        if (isRunning) {
+            detectedPorts = await getProcessPorts(existingProcess.pid);
+        }
+
         if (isRunning) {
             await terminateProcess(existingProcess.pid);
             announce(`🔥 Terminated existing process '${name}'`, "Process Terminated");
         }
 
-        // Use retry wrapper from DB?
-        // Using raw SQLite for now to match index.ts logic
+        // Kill anything still on the ports the old process was using
+        for (const port of detectedPorts) {
+            await killProcessOnPort(port);
+        }
+
+        // Wait for all detected ports to free up
+        for (const port of detectedPorts) {
+            const freed = await waitForPortFree(port, 5000);
+            if (!freed) {
+                // Retry kill and wait once more
+                await killProcessOnPort(port);
+                await waitForPortFree(port, 3000);
+            }
+        }
+
         await retryDatabaseOperation(() =>
-            removeProcess(existingProcess.pid)
+            removeProcessByName(name!)
         );
     } else {
         if (!directory || !name || !command) {
@@ -87,20 +109,9 @@ export async function handleRun(options: CommandOptions) {
         }
     }
 
-    // BUN_PORT kill logic when force flag is used
-    if (force) {
-        const bunPort = finalEnv.BUN_PORT || process.env.BUN_PORT;
-        if (bunPort) {
-            const port = parseInt(bunPort.toString());
-            if (!isNaN(port)) {
-                await killProcessOnPort(port);
-            }
-        }
-    }
-
-    const stdoutPath = stdout || join(homePath, ".bgr", `${name}-out.txt`);
+    const stdoutPath = stdout || existingProcess?.stdout_path || join(homePath, ".bgr", `${name}-out.txt`);
     Bun.write(stdoutPath, '');
-    const stderrPath = stderr || join(homePath, ".bgr", `${name}-err.txt`);
+    const stderrPath = stderr || existingProcess?.stderr_path || join(homePath, ".bgr", `${name}-err.txt`);
     Bun.write(stderrPath, '');
 
     const newProcess = Bun.spawn(getShellCommand(finalCommand!), {
@@ -132,7 +143,9 @@ export async function handleRun(options: CommandOptions) {
     );
 
     announce(
-        `${existingProcess ? '🔄 Restarted' : '🚀 Launched'} process "${name}" with PID ${newProcess.pid}`,
+        `${existingProcess ? '🔄 Restarted' : '🚀 Launched'} process "${name}" with PID ${actualPid}`,
         "Process Started"
     );
 }
+
+
