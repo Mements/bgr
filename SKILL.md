@@ -5,7 +5,7 @@ description: Lightweight Bun process manager. Use bgrun to start, stop, restart,
 
 # bgrun — Bun Background Runner
 
-**Use `bgrun` (or `bgr` alias) to manage long-running processes.** It handles spawning, PID tracking, log capture, port detection, file watching, and provides a web dashboard — all backed by SQLite.
+**Use `bgrun` to manage long-running processes.** It handles spawning, PID tracking, log capture, port detection, file watching, and provides a web dashboard — all backed by SQLite.
 
 ## Quick Reference
 
