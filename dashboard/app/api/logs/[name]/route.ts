@@ -1,7 +1,7 @@
 /**
  * GET /api/logs/:name — Read last 100 lines of process stdout/stderr
  */
-import { getProcess, readFileTail } from 'bgr';
+import { getProcess, readFileTail } from 'bgrun';
 
 export async function GET(req: Request, { params }: { params: { name: string } }) {
     const name = decodeURIComponent(params.name);

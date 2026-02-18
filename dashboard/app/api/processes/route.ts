@@ -5,7 +5,7 @@
  * instead of per-process calls to avoid subprocess pile-up on Windows.
  * Results are cached for 5 seconds via globalThis.
  */
-import { getAllProcesses, calculateRuntime } from 'bgr';
+import { getAllProcesses, calculateRuntime } from 'bgrun';
 import { $ } from 'bun';
 
 const CACHE_TTL_MS = 5_000;

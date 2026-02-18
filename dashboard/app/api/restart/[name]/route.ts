@@ -1,7 +1,7 @@
 /**
  * POST /api/restart/:name — Force-restart a process
  */
-import { handleRun } from 'bgr';
+import { handleRun } from 'bgrun';
 
 export async function POST(req: Request, { params }: { params: { name: string } }) {
     const name = decodeURIComponent(params.name);

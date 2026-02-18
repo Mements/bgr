@@ -1,7 +1,7 @@
 /**
  * DELETE /api/processes/:name — Stop and remove a process
  */
-import { getProcess, removeProcessByName, isProcessRunning, terminateProcess } from 'bgr';
+import { getProcess, removeProcessByName, isProcessRunning, terminateProcess } from 'bgrun';
 
 export async function DELETE(req: Request, { params }: { params: { name: string } }) {
     const name = decodeURIComponent(params.name);

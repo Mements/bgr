@@ -17,7 +17,7 @@ export async function startServer() {
     const port = process.env.BUN_PORT ? parseInt(process.env.BUN_PORT, 10) : 3000;
     await start({
         appDir,
-        defaultTitle: 'BGR Dashboard - Process Manager',
+        defaultTitle: 'bgrun Dashboard - Process Manager',
         globalCss: path.join(appDir, 'globals.css'),
         port,
     });

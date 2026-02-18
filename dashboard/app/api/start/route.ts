@@ -1,7 +1,7 @@
 /**
  * POST /api/start — Create or start a process
  */
-import { handleRun } from 'bgr';
+import { handleRun } from 'bgrun';
 
 export async function POST(req: Request) {
     const body = await req.json();

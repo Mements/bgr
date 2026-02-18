@@ -1,5 +1,5 @@
 /**
- * BGR Dashboard — Page Client Interactivity
+ * bgrun Dashboard — Page Client Interactivity
  *
  * NOT a React component. A mount function that adds interactivity
  * to the server-rendered HTML. JSX here creates real DOM elements
@@ -201,9 +201,9 @@ export default function mount(): () => void {
         try {
             const res = await fetch('/api/version');
             const data = await res.json();
-            versionBadge.textContent = data.version ? `v${data.version}` : 'BGR';
+            versionBadge.textContent = data.version ? `v${data.version}` : 'bgrun';
         } catch {
-            versionBadge.textContent = 'BGR';
+            versionBadge.textContent = 'bgrun';
         }
     }
     loadVersion();

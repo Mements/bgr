@@ -1,5 +1,5 @@
 /**
- * BGR Dashboard — Root Layout (Server Component)
+ * bgrun Dashboard — Root Layout (Server Component)
  * 
  * Renders the page shell: header with logo, version badge, and refresh button.
  */
@@ -11,8 +11,8 @@ export default function RootLayout({ children }: { children: any }) {
                 <meta charSet="utf-8" />
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
                 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-                <title>BGR Dashboard</title>
-                <meta name="description" content="BGR - Bun Background Runner - Process Manager Dashboard" />
+                <title>bgrun Dashboard</title>
+                <meta name="description" content="bgrun — Bun Background Runner — Process Manager Dashboard" />
             </head>
             <body>
                 <div className="container">
@@ -20,8 +20,8 @@ export default function RootLayout({ children }: { children: any }) {
                         <div className="logo">
                             <div className="logo-icon">⚡</div>
                             <div>
-                                <h1>BGR</h1>
-                                <span className="logo-subtitle">Background Runner</span>
+                                <h1>bgrun</h1>
+                                <span className="logo-subtitle">Bun Background Runner</span>
                             </div>
                         </div>
                         <div className="header-actions">
