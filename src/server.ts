@@ -14,11 +14,13 @@ import path from 'path';
 export async function startServer() {
     const appDir = path.join(import.meta.dir, '../dashboard/app');
 
-    const port = process.env.BUN_PORT ? parseInt(process.env.BUN_PORT, 10) : 3000;
+    // Only pass port when BUN_PORT is explicitly set.
+    // When omitted, Melina defaults to 3000 with auto-fallback to next available port.
+    const explicitPort = process.env.BUN_PORT ? parseInt(process.env.BUN_PORT, 10) : undefined;
     await start({
         appDir,
         defaultTitle: 'bgrun Dashboard - Process Manager',
         globalCss: path.join(appDir, 'globals.css'),
-        port,
+        ...(explicitPort !== undefined && { port: explicitPort }),
     });
 }

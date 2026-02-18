@@ -45,13 +45,10 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "@ments/web": "^1.12.1",
     "boxen": "^8.0.1",
     "chalk": "^5.4.1",
     "dedent": "^1.5.3",
     "melina": "^1.3.2",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
     "sqlite-zod-orm": "^3.8.0"
   },
   "engines": {
