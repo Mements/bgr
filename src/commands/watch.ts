@@ -1,22 +1,22 @@
-import type { CommandOptions, ProcessRecord } from "../types";
+import type { CommandOptions } from "../types";
+import type { Process } from "../db";
 import { getProcess } from "../db";
 import { isProcessRunning } from "../platform";
 import { error, announce } from "../logger";
 import { tailFile } from "../utils";
 import { handleRun } from "./run";
 import * as fs from "fs";
-import { join } from "path";
 import path from "path";
 import chalk, { type ChalkInstance } from "chalk";
 
 export async function handleWatch(options: CommandOptions, logOptions: { showLogs: boolean; logType: 'stdout' | 'stderr' | 'both', lines?: number }) {
-    let currentProcess: ProcessRecord | null = null;
+    let currentProcess: Process | null = null;
     let isRestarting = false;
     let debounceTimeout: Timer | null = null;
     let tailStops: (() => void)[] = [];
     let lastRestartPath: string | null = null; // Track if restart was due to file change
 
-    const dumpLogsIfDead = async (proc: ProcessRecord, reason: string) => {
+    const dumpLogsIfDead = async (proc: Process, reason: string) => {
         const isDead = !(await isProcessRunning(proc.pid));
         if (!isDead) return false;
 
@@ -193,7 +193,7 @@ export async function handleWatch(options: CommandOptions, logOptions: { showLog
 
     const watcher = fs.watch(workdir, { recursive: true }, (eventType, filename) => {
         if (filename == null) return;
-        const fullPath = join(workdir, filename as string);
+        const fullPath = path.join(workdir, filename as string);
         if (fullPath.includes(".git") || fullPath.includes("node_modules")) return;
         if (debounceTimeout) clearTimeout(debounceTimeout);
         debounceTimeout = setTimeout(() => restartProcess(fullPath), 500);

@@ -1,6 +1,6 @@
 import chalk from "chalk";
-import { ProcessTableRow, renderProcessTable } from "../table";
-import { ProcessRecord } from "../types";
+import { renderProcessTable } from "../table";
+import type { ProcessTableRow } from "../table";
 import { getAllProcesses } from "../db";
 import { announce } from "../logger";
 import { isProcessRunning, calculateRuntime, parseEnvString } from "../utils";

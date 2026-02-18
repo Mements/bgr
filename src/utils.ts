@@ -16,16 +16,16 @@ export function calculateRuntime(startTime: string): string {
     return `${diffInMinutes} minutes`;
 }
 
-// Re-export specific utils from platform if they are used as generic utils
+// Re-export platform utils for backward compatibility and convenience
 export { isProcessRunning } from "./platform";
 
 import * as fs from "fs";
-import { join } from "path";
 import chalk from "chalk";
 
 // Read version at runtime instead of using macros (macros crash on Windows)
 export async function getVersion(): Promise<string> {
     try {
+        const { join } = await import("path");
         const pkgPath = join(import.meta.dir, '../package.json');
         const pkg = await Bun.file(pkgPath).json();
         return pkg.version || '0.0.0';
@@ -45,8 +45,6 @@ export function validateDirectory(directory: string) {
 export function tailFile(path: string, prefix: string, colorFn: (s: string) => string, lines?: number): () => void {
     let position = 0;
     let lastPartial = '';
-    // Check if file exists first? The original code did fs.openSync which throws if not exist. 
-    // Assuming caller checks persistence or we catch.
 
     if (!fs.existsSync(path)) {
         return () => { };
@@ -96,4 +94,3 @@ export function tailFile(path: string, prefix: string, colorFn: (s: string) => s
         try { fs.closeSync(fd); } catch { }
     };
 }
-

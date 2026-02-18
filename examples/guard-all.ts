@@ -20,7 +20,7 @@ import {
   getHomeDir,
   getProcessMemory,
   copyFile,
-} from "./src/platform";
+} from "../src/platform";
 
 interface ProcessInfo {
   name: string;
@@ -74,7 +74,7 @@ async function getAllProcesses(): Promise<ProcessInfo[]> {
     const jsonStdout = await jsonResult.text();
     const jsonData = JSON.parse(jsonStdout);
     return jsonData;
-  } catch (error) {
+  } catch (error: any) {
     console.error(`Error getting process list: ${error.message}`);
     return [];
   }
@@ -137,7 +137,7 @@ async function restartProcess(processName: string): Promise<boolean> {
       console.error(`❌ Failed to restart "${processName}": ${restartResult.stderr}`);
       return false;
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error(`❌ Error restarting "${processName}": ${error.message}`);
     return false;
   }
@@ -253,7 +253,7 @@ async function main() {
   while (true) {
     try {
       await checkAndRestartProcesses();
-    } catch (error) {
+    } catch (error: any) {
       console.error(`💥 Error during check cycle: ${error.message}`);
     }
 

@@ -12,16 +12,3 @@ export interface CommandOptions {
     stderr?: string;
     dbPath?: string;
 }
-
-export interface ProcessRecord {
-    id: number;
-    pid: number;
-    workdir: string;
-    command: string;
-    name: string;
-    env: string;
-    timestamp: string;
-    configPath?: string;
-    stdout_path: string;
-    stderr_path: string;
-}

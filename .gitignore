@@ -1,6 +1,4 @@
 *.sqlite
-bin/*
-!bin/build.sh
 node_modules
 dist
 bun.lockb

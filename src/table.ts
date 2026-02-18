@@ -1,7 +1,5 @@
 #!/usr/bin/env bun
 
-// ./Documents/bgr/src/table.ts
-
 import chalk from "chalk";
 
 export interface TableColumn {
@@ -14,7 +12,7 @@ export interface TableColumn {
 export interface TableOptions {
   maxWidth?: number;
   padding?: number;
-  borderStyle?: "single" | "double" | "rounded" | "none";
+  borderStyle?: "rounded" | "single" | "double" | "none";
   showHeaders?: boolean;
 }
 
@@ -145,11 +143,13 @@ export function renderHorizontalTable(
   const { maxWidth = getTerminalWidth(), padding = 2, borderStyle = "rounded", showHeaders = true } = options;
   if (rows.length === 0) return { table: chalk.gray("No data to display"), truncatedIndices: [] };
 
-  const borderChars = {
+  const borderChars: Record<string, string[]> = {
     rounded: ["╭", "┬", "╮", "─", "│", "├", "┼", "┤", "╰", "┴", "╯"],
+    single: ["┌", "┬", "┐", "─", "│", "├", "┼", "┤", "└", "┴", "┘"],
+    double: ["╔", "╦", "╗", "═", "║", "╠", "╬", "╣", "╚", "╩", "╝"],
     none: [" ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " "],
-  }[borderStyle]!;
-  const [tl, tc, tr, h, v, ml, mc, mr, bl, bc, br] = borderChars;
+  };
+  const [tl, tc, tr, h, v, ml, mc, mr, bl, bc, br] = borderChars[borderStyle] ?? borderChars.rounded;
   const columnWidths = calculateColumnWidths(rows, columns, maxWidth, padding);
   const widthArray = columns.map((col) => columnWidths.get(col.key)!);
   const truncatedIndices = new Set<number>();

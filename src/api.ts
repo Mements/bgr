@@ -18,6 +18,10 @@
  * ```
  */
 
+// --- Types ---
+export type { Process } from './db'
+export type { CommandOptions } from './types'
+
 // --- Database Operations ---
 export { db, getAllProcesses, getProcess, insertProcess, removeProcess, removeProcessByName, removeAllProcesses, retryDatabaseOperation } from './db'
 

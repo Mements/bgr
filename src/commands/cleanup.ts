@@ -1,17 +1,14 @@
 
 import { getProcess, removeProcessByName, removeProcess, getAllProcesses, removeAllProcesses } from "../db";
-import { isProcessRunning, terminateProcess } from "../platform";
+import { isProcessRunning, terminateProcess, getProcessPorts, killProcessOnPort, waitForPortFree } from "../platform";
 import { announce, error } from "../logger";
-import type { ProcessRecord } from "../types";
 import * as fs from "fs";
 
 export async function handleDelete(name: string) {
-    const process = getProcess(name); // Wrapper or raw query needed if getProcess doesn't return full type
-    // getProcess returns ProcessRecord | null
+    const process = getProcess(name);
 
     if (!process) {
         error(`No process found named '${name}'`);
-        // error calls process.exit(1), so we return but TS doesn't know. 
         return;
     }
 
@@ -76,7 +73,6 @@ export async function handleStop(name: string) {
     }
 
     // Detect ports the process is using BEFORE killing it
-    const { getProcessPorts, killProcessOnPort } = await import("../platform");
     const ports = await getProcessPorts(proc.pid);
 
     await terminateProcess(proc.pid);
@@ -96,7 +92,6 @@ export async function handleDeleteAll() {
         return;
     }
 
-    const { getProcessPorts, killProcessOnPort, waitForPortFree } = await import("../platform");
     let killedCount = 0;
     let portsFreed = 0;
 
