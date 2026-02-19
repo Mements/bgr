@@ -14,7 +14,7 @@ export default function RootLayout({ children }: { children: any }) {
                 <title>bgrun Dashboard</title>
                 <meta name="description" content="bgrun — Bun Background Runner — Process Manager Dashboard" />
             </head>
-            <body>
+            <body style={{ WebkitFontSmoothing: 'antialiased', MozOsxFontSmoothing: 'grayscale' }}>
                 <div className="container">
                     <header className="header">
                         <div className="logo">
