@@ -39,6 +39,19 @@ export default function DashboardPage() {
                         <input type="text" className="search-input" id="search-input" placeholder="Filter processes..." />
                         <span className="search-shortcut">/</span>
                     </div>
+                    <button className="btn btn-ghost btn-icon" id="group-toggle-btn" title="Toggle Grouping">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M4 21v-7" />
+                            <path d="M4 10V3" />
+                            <path d="M12 21v-9" />
+                            <path d="M12 8V3" />
+                            <path d="M20 21v-5" />
+                            <path d="M20 12V3" />
+                            <path d="M1 14h6" />
+                            <path d="M9 8h6" />
+                            <path d="M17 16h6" />
+                        </svg>
+                    </button>
                 </div>
                 <button className="btn btn-primary" id="new-process-btn">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -58,6 +71,7 @@ export default function DashboardPage() {
                             <th>Status</th>
                             <th>PID</th>
                             <th>Port</th>
+                            <th>Memory</th>
                             <th>Command</th>
                             <th>Runtime</th>
                             <th style={{ width: '120px' }}>Actions</th>

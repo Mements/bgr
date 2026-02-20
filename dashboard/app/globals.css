@@ -511,6 +511,31 @@ body::after {
     overflow: hidden;
 }
 
+.btn-icon {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-lg);
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid transparent;
+}
+
+.btn-icon:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+    border-color: var(--border-glass);
+}
+
+.btn-icon.active {
+    background: rgba(var(--color-primary), 0.1);
+    color: rgb(var(--color-primary));
+    border: 1px solid rgba(var(--color-primary), 0.2);
+}
+
 .btn-primary {
     background: var(--accent-gradient);
     color: white;
@@ -569,7 +594,32 @@ body::after {
 
 table {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+/* ─── Group Header ─── */
+.group-header td {
+    padding: 1.5rem 0.5rem 0.5rem 1.25rem !important;
+    background: transparent !important;
+    border: none !important;
+}
+
+.group-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    opacity: 0.8;
+}
+
+.group-icon {
+    font-size: 1rem;
+    opacity: 0.7;
 }
 
 th {
@@ -724,6 +774,22 @@ tr[data-process-name]:hover .process-icon {
 .status-badge.stopped .status-dot {
     background: var(--danger);
     opacity: 0.6;
+}
+
+/* ─── Memory Badge ─── */
+.memory-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(56, 189, 248, 0.08);
+    /* info-bg-subtle */
+    color: var(--info);
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    border: 1px solid rgba(56, 189, 248, 0.15);
+    width: fit-content;
+    white-space: nowrap;
 }
 
 .pid {

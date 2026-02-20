@@ -21,6 +21,7 @@ export interface ProcessTableRow {
   pid: number;
   name: string;
   port: string;
+  memory: string;
   command: string;
   workdir: string;
   status: string;
@@ -220,6 +221,7 @@ export function renderProcessTable(processes: ProcessTableRow[], options?: Table
     { key: "pid", header: "PID", formatter: (pid) => chalk.yellow(pid) },
     { key: "name", header: "Name", formatter: (name) => chalk.cyan.bold(name) },
     { key: "port", header: "Port", formatter: (port) => port === '-' ? chalk.gray(port) : chalk.hex('#FF6B6B')(port) },
+    { key: "memory", header: "Memory", formatter: (mem) => mem === '-' ? chalk.gray(mem) : chalk.hex('#4ECDC4')(mem) },
     { key: "command", header: "Command" },
     { key: "workdir", header: "Directory", formatter: (dir) => chalk.gray(dir), truncator: truncatePath },
     { key: "status", header: "Status" },

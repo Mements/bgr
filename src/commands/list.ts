@@ -4,7 +4,14 @@ import type { ProcessTableRow } from "../table";
 import { getAllProcesses } from "../db";
 import { announce } from "../logger";
 import { isProcessRunning, calculateRuntime, parseEnvString } from "../utils";
-import { getProcessPorts } from "../platform";
+import { getProcessPorts, getProcessBatchMemory } from "../platform";
+
+function formatMemory(bytes: number): string {
+    if (bytes === 0) return '-';
+    const mb = bytes / (1024 * 1024);
+    if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+    return `${Math.round(mb)} MB`;
+}
 
 export async function showAll(opts?: { json?: boolean; filter?: string }) {
     const processes = getAllProcesses();
@@ -41,9 +48,14 @@ export async function showAll(opts?: { json?: boolean; filter?: string }) {
     // Table output
     const tableData: ProcessTableRow[] = [];
 
+    // Batch fetch memory for all PIDs
+    const allPids = filtered.map(p => p.pid);
+    const memoryMap = await getProcessBatchMemory(allPids);
+
     for (const proc of filtered) {
         const isRunning = await isProcessRunning(proc.pid, proc.command);
         const runtime = calculateRuntime(proc.timestamp);
+        const mem = isRunning ? (memoryMap.get(proc.pid) || 0) : 0;
 
         const ports = isRunning ? await getProcessPorts(proc.pid) : [];
         tableData.push({
@@ -51,6 +63,7 @@ export async function showAll(opts?: { json?: boolean; filter?: string }) {
             pid: proc.pid,
             name: proc.name,
             port: ports.length > 0 ? ports.map(p => `:${p}`).join(',') : '-',
+            memory: formatMemory(mem),
             command: proc.command,
             workdir: proc.workdir,
             status: isRunning

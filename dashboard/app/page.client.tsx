@@ -14,6 +14,8 @@ interface ProcessData {
     running: boolean;
     port: number | null;
     ports: number[];
+    memory: number; // bytes
+    group: string | null;
     runtime: string;
     timestamp: string;
 }
@@ -94,6 +96,13 @@ function formatRuntime(raw: string): string {
     return remainHours > 0 ? `${days}d ${remainHours}h` : `${days}d`;
 }
 
+function formatMemory(bytes: number): string {
+    if (!bytes) return '-';
+    const mb = bytes / (1024 * 1024);
+    if (mb < 1024) return `${Math.round(mb)} MB`;
+    return `${(mb / 1024).toFixed(1)} GB`;
+}
+
 // ─── JSX Components ───
 
 function ProcessRow({ p, animate }: { p: ProcessData; animate?: boolean }) {
@@ -118,6 +127,12 @@ function ProcessRow({ p, animate }: { p: ProcessData; animate?: boolean }) {
                     : <span style={{ color: 'var(--text-muted)' }}>–</span>
                 }
             </td>
+            <td className="memory">
+                {p.memory > 0
+                    ? <span className="memory-badge">{formatMemory(p.memory)}</span>
+                    : <span style={{ color: 'var(--text-muted)' }}>–</span>
+                }
+            </td>
             <td className="command" title={p.command}>{p.command}</td>
             <td className="runtime">{formatRuntime(p.runtime)}</td>
             <td className="actions">
@@ -135,6 +150,19 @@ function ProcessRow({ p, animate }: { p: ProcessData; animate?: boolean }) {
                 <button className="action-btn danger" data-action="delete" data-name={p.name} title="Delete">
                     <TrashIcon />
                 </button>
+            </td>
+        </tr>
+    );
+}
+
+function GroupHeader({ name }: { name: string }) {
+    return (
+        <tr className="group-header">
+            <td colSpan={8}>
+                <div className="group-label">
+                    <span className="group-icon">📂</span>
+                    {name}
+                </div>
             </td>
         </tr>
     );
@@ -191,6 +219,7 @@ export default function mount(): () => void {
     let isFirstLoad = true;
     let allProcesses: ProcessData[] = [];
     let searchQuery = '';
+    let isGrouped = localStorage.getItem('bgr_grouped') === 'true'; // Persist preference
     let drawerProcess: string | null = null;
     let drawerTab: 'stdout' | 'stderr' = 'stdout';
 
@@ -259,8 +288,47 @@ export default function mount(): () => void {
         }
 
         const animate = isFirstLoad;
-        const rows = processes.map(p => <ProcessRow p={p} animate={animate} /> as unknown as Node);
-        tbody.replaceChildren(...rows);
+
+        if (isGrouped) {
+            // Grouping Logic
+            const groups: Record<string, ProcessData[]> = {};
+            const ungrouped: ProcessData[] = [];
+
+            processes.forEach(p => {
+                if (p.group) {
+                    if (!groups[p.group]) groups[p.group] = [];
+                    groups[p.group].push(p);
+                } else {
+                    ungrouped.push(p);
+                }
+            });
+
+            const nodes: Node[] = [];
+
+            // Render groups first
+            Object.keys(groups).sort().forEach(groupName => {
+                nodes.push(<GroupHeader name={groupName} /> as unknown as Node);
+                groups[groupName].forEach(p => {
+                    nodes.push(<ProcessRow p={p} animate={animate} /> as unknown as Node);
+                });
+            });
+
+            // Render ungrouped last (with header if groups exist)
+            if (ungrouped.length > 0) {
+                if (Object.keys(groups).length > 0) {
+                    nodes.push(<GroupHeader name="Ungrouped" /> as unknown as Node);
+                }
+                ungrouped.forEach(p => {
+                    nodes.push(<ProcessRow p={p} animate={animate} /> as unknown as Node);
+                });
+            }
+
+            tbody.replaceChildren(...nodes);
+        } else {
+            // Standard List View
+            const rows = processes.map(p => <ProcessRow p={p} animate={animate} /> as unknown as Node);
+            tbody.replaceChildren(...rows);
+        }
 
         if (isFirstLoad) isFirstLoad = false;
 
@@ -368,6 +436,8 @@ export default function mount(): () => void {
                 { label: 'Runtime', value: formatRuntime(proc.runtime) },
                 { label: 'Command', value: proc.command },
                 { label: 'Directory', value: proc.directory || '–' },
+                { label: 'Memory', value: formatMemory(proc.memory) },
+                { label: 'Group', value: proc.group || '–' },
             ];
 
             const items = metaItems.map(m => (
@@ -504,10 +574,26 @@ export default function mount(): () => void {
         }
     });
 
-    // ─── Refresh Button ───
+    // ─── Toolbar Actions ───
     $('refresh-btn')?.addEventListener('click', () => {
         loadProcesses();
         if (drawerProcess) refreshDrawerLogs();
+    });
+
+    const groupBtn = $('group-toggle-btn');
+    function updateGroupBtnState() {
+        if (groupBtn) {
+            groupBtn.classList.toggle('active', isGrouped);
+            groupBtn.style.color = isGrouped ? 'var(--accent-primary)' : '';
+        }
+    }
+    updateGroupBtnState();
+
+    groupBtn?.addEventListener('click', () => {
+        isGrouped = !isGrouped;
+        localStorage.setItem('bgr_grouped', String(isGrouped));
+        updateGroupBtnState();
+        renderFilteredProcesses();
     });
 
     // ─── Keyboard Shortcuts ───

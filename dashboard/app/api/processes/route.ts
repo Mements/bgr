@@ -5,7 +5,7 @@
  * instead of per-process calls to avoid subprocess pile-up on Windows.
  * Results are cached for 5 seconds via globalThis.
  */
-import { getAllProcesses, calculateRuntime } from 'bgrun';
+import { getAllProcesses, calculateRuntime, getProcessBatchMemory, getDbInfo } from 'bgrun';
 import { $ } from 'bun';
 
 const CACHE_TTL_MS = 5_000;
@@ -97,19 +97,33 @@ async function getPortsByPid(pids: number[]): Promise<Map<number, number[]>> {
     return portMap;
 }
 
+// Parse environment string to find BGR_GROUP
+function getProcessGroup(envStr: string): string | null {
+    if (!envStr) return null;
+    // Env is usually "KEY=VAL,KEY2=VAL2"
+    const match = envStr.match(/(?:^|,)BGR_GROUP=([^,]+)/);
+    return match ? match[1] : null;
+}
+
+// ... existing code ...
+
 async function fetchProcesses(): Promise<any[]> {
     const procs = getAllProcesses();
     const pids = procs.map((p: any) => p.pid);
 
-    // Two subprocess calls total (not 2×N)
-    const [runningPids, portMap] = await Promise.all([
+    // Three subprocess calls total (not 3×N)
+    const [runningPids, portMap, memoryMap] = await Promise.all([
         withTimeout(getRunningPids(pids), new Set<number>()),
         withTimeout(getPortsByPid(pids), new Map<number, number[]>()),
+        // Use the new batch memory fetcher
+        withTimeout(getProcessBatchMemory(pids), new Map<number, number>()),
     ]);
 
     return procs.map((p: any) => {
         const running = runningPids.has(p.pid);
         const ports = running ? (portMap.get(p.pid) || []) : [];
+        const memory = running ? (memoryMap.get(p.pid) || 0) : 0;
+
         return {
             name: p.name,
             command: p.command,
@@ -118,6 +132,8 @@ async function fetchProcesses(): Promise<any[]> {
             running,
             port: ports.length > 0 ? ports[0] : null,
             ports,
+            memory, // Bytes
+            group: getProcessGroup(p.env),
             runtime: calculateRuntime(p.timestamp),
             timestamp: p.timestamp,
         };

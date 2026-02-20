@@ -26,9 +26,11 @@ export type Process = z.infer<typeof ProcessSchema> & { id: number };
 // =============================================================================
 
 const homePath = getHomeDir();
+const bgrDir = join(homePath, ".bgr");
 const dbName = process.env.DB_NAME ?? "bgr";
-const dbPath = join(homePath, ".bgr", `${dbName}_v2.sqlite`);
-ensureDir(join(homePath, ".bgr"));
+export const dbPath = join(bgrDir, `${dbName}_v2.sqlite`);
+export const bgrHome = bgrDir;
+ensureDir(bgrDir);
 
 export const db = new Database(dbPath, {
     process: ProcessSchema,
@@ -93,6 +95,19 @@ export function removeAllProcesses() {
     for (const p of all) {
         db.process.delete(p.id);
     }
+}
+
+// =============================================================================
+// DEBUG / INFO
+// =============================================================================
+
+export function getDbInfo() {
+    return {
+        dbPath,
+        bgrHome,
+        dbName,
+        exists: require('fs').existsSync(dbPath),
+    };
 }
 
 // =============================================================================

@@ -79,8 +79,8 @@ async function isDockerContainerRunning(command: string): Promise<boolean> {
 async function getChildPids(pid: number): Promise<number[]> {
   try {
     if (isWindows()) {
-      // On Windows, use wmic to get child processes
-      const result = await $`wmic process where (ParentProcessId=${pid}) get ProcessId`.nothrow().text();
+      // On Windows, use PowerShell to get child processes
+      const result = await $`powershell -Command "Get-CimInstance Win32_Process -Filter 'ParentProcessId=${pid}' | Select-Object -ExpandProperty ProcessId"`.nothrow().text();
       return result
         .split('\n')
         .map(line => parseInt(line.trim()))
@@ -367,24 +367,69 @@ export function copyFile(src: string, dest: string): void {
  * Get memory usage of a process in bytes
  */
 export async function getProcessMemory(pid: number): Promise<number> {
+  const map = await getProcessBatchMemory([pid]);
+  return map.get(pid) || 0;
+}
+
+/**
+ * Get memory usage for a batch of PIDs in bytes.
+ * Returns a Map of PID -> Memory (bytes).
+ * 
+ * Optimization: Fetches ALL processes in one go and filters in-memory
+ * to avoid spawning N subprocesses.
+ */
+export async function getProcessBatchMemory(pids: number[]): Promise<Map<number, number>> {
+  const memoryMap = new Map<number, number>();
+  if (pids.length === 0) return memoryMap;
+
+  // Create a quick lookup set
+  const pidSet = new Set(pids);
+
   try {
     if (isWindows()) {
-      // On Windows, use wmic to get memory
-      const result = await $`wmic process where ProcessId=${pid} get WorkingSetSize`.nothrow().text();
-      const lines = result.split('\n').filter(line => line.trim() && !line.includes('WorkingSetSize'));
-      if (lines.length > 0) {
-        return parseInt(lines[0].trim()) || 0;
+      // Get-Process | Select-Object Id, WorkingSet
+      const result = await $`powershell -Command "Get-Process | Select-Object Id, WorkingSet"`.nothrow().quiet().text();
+      const lines = result.trim().split('\n');
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('Id') || trimmed.startsWith('--')) continue;
+
+        const parts = trimmed.split(/\s+/);
+        if (parts.length >= 2) {
+          const val1 = parseInt(parts[0]);
+          const val2 = parseInt(parts[parts.length - 1]);
+
+          if (!isNaN(val1) && !isNaN(val2)) {
+            if (pidSet.has(val1)) memoryMap.set(val1, val2);
+          }
+        }
       }
-      return 0;
     } else {
-      // On Unix, use ps to get RSS in KB
-      const result = await $`ps -o rss= -p ${pid}`.text();
-      const memoryKB = parseInt(result.trim());
-      return memoryKB * 1024; // Convert to bytes
+      // Unix: ps -o pid,rss
+      // PID   RSS
+      // 123   456
+      const result = await $`ps -eo pid,rss`.nothrow().quiet().text();
+      const lines = result.trim().split('\n');
+
+      // Skip header
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        const [pidStr, rssStr] = line.split(/\s+/);
+        const pid = parseInt(pidStr);
+        const rss = parseInt(rssStr); // KB
+
+        if (pidSet.has(pid)) {
+          memoryMap.set(pid, rss * 1024); // Convert KB to Bytes
+        }
+      }
     }
-  } catch {
-    return 0;
+  } catch (e) {
+    // console.error("Error fetching batch memory:", e);
   }
+
+  return memoryMap;
 }
 
 /**
@@ -437,4 +482,3 @@ export async function getProcessPorts(pid: number): Promise<number[]> {
     return [];
   }
 }
-

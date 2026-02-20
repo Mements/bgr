@@ -12,7 +12,7 @@ import type { CommandOptions } from "./types";
 import { error, announce } from "./logger";
 import { startServer } from "./server";
 import { getHomeDir, getShellCommand, findChildPid, isProcessRunning, terminateProcess, getProcessPorts, killProcessOnPort, waitForPortFree } from "./platform";
-import { insertProcess, removeProcessByName, getProcess, retryDatabaseOperation } from "./db";
+import { insertProcess, removeProcessByName, getProcess, retryDatabaseOperation, getDbInfo } from "./db";
 import dedent from "dedent";
 import chalk from "chalk";
 import { join } from "path";
@@ -51,6 +51,7 @@ async function showHelp() {
       --log-stderr           Show only stderr logs
       --lines <n>            Number of log lines to show (default: all)
       --version              Show version
+      --debug                Show debug info (DB path, BGR home, etc.)
       --dashboard            Launch web dashboard as bgrun-managed process
       --port <number>        Port for dashboard (default: 3000)
       --help                 Show this help message
@@ -92,6 +93,7 @@ async function run() {
       stdout: { type: 'string' },
       stderr: { type: 'string' },
       dashboard: { type: 'boolean' },
+      debug: { type: 'boolean' },
       "_serve": { type: 'boolean' },
       port: { type: 'string' },
     },
@@ -230,6 +232,23 @@ async function run() {
 
   if (values.help) {
     await showHelp();
+    return;
+  }
+
+  if (values.debug) {
+    const info = getDbInfo();
+    const version = await getVersion();
+    console.log(dedent`
+      ${chalk.bold('bgrun debug info')}
+      ${chalk.gray('─'.repeat(40))}
+      Version:   ${chalk.cyan(version)}
+      BGR Home:  ${chalk.yellow(info.bgrHome)}
+      DB Path:   ${chalk.yellow(info.dbPath)}
+      DB Name:   ${info.dbName}
+      DB Exists: ${info.exists ? chalk.green('✓') : chalk.red('✗')}
+      Platform:  ${process.platform}
+      Bun:       ${Bun.version}
+    `);
     return;
   }
 

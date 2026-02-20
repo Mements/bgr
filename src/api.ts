@@ -23,10 +23,25 @@ export type { Process } from './db'
 export type { CommandOptions } from './types'
 
 // --- Database Operations ---
-export { db, getAllProcesses, getProcess, insertProcess, removeProcess, removeProcessByName, removeAllProcesses, retryDatabaseOperation } from './db'
+export { db, getAllProcesses, getProcess, insertProcess, removeProcess, removeProcessByName, removeAllProcesses, retryDatabaseOperation, getDbInfo, dbPath, bgrHome } from './db'
 
 // --- Process Operations ---
-export { isProcessRunning, terminateProcess, readFileTail, getProcessPorts, findChildPid, findPidByPort, getShellCommand, killProcessOnPort, waitForPortFree, ensureDir, getHomeDir, isWindows } from './platform'
+export {
+    isProcessRunning,
+    terminateProcess,
+    readFileTail,
+    getProcessPorts,
+    findChildPid,
+    findPidByPort,
+    getShellCommand,
+    killProcessOnPort,
+    waitForPortFree,
+    ensureDir,
+    getHomeDir,
+    isWindows,
+    getProcessBatchMemory,
+    getProcessMemory
+} from './platform'
 
 // --- High-Level Commands ---
 export { handleRun } from './commands/run'
