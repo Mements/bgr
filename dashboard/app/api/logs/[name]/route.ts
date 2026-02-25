@@ -1,10 +1,9 @@
 /**
- * GET /api/logs/:name — Read last 100 lines of process stdout/stderr
- * Returns log content + file modification timestamps
+ * GET /api/logs/:name — Read ALL lines of process stdout/stderr
+ * Returns full log content + file modification timestamps
  */
 import { getProcess } from '../../../../../src/db';
-import { readFileTail } from '../../../../../src/platform';
-import { stat } from 'fs/promises';
+import { stat, readFile } from 'fs/promises';
 
 async function getFileMtime(path: string): Promise<string | null> {
     try {
@@ -12,6 +11,14 @@ async function getFileMtime(path: string): Promise<string | null> {
         return s.mtime.toISOString();
     } catch {
         return null;
+    }
+}
+
+async function readFullFile(path: string): Promise<string> {
+    try {
+        return await readFile(path, 'utf-8');
+    } catch {
+        return '';
     }
 }
 
@@ -24,8 +31,8 @@ export async function GET(req: Request, { params }: { params: { name: string } }
     }
 
     const [stdout, stderr, stdoutModified, stderrModified] = await Promise.all([
-        readFileTail(proc.stdout_path, 100).catch(() => ''),
-        readFileTail(proc.stderr_path, 100).catch(() => ''),
+        readFullFile(proc.stdout_path),
+        readFullFile(proc.stderr_path),
         getFileMtime(proc.stdout_path),
         getFileMtime(proc.stderr_path),
     ]);

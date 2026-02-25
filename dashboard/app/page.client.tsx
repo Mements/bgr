@@ -5,7 +5,11 @@
  * NOT a React component. A mount function that adds interactivity
  * to the server-rendered HTML. JSX here creates real DOM elements
  * (via Melina's jsx-dom runtime, not React virtual DOM).
+ *
+ * Log viewer uses Melina's VDOM render() with keyed reconciler
+ * for efficient incremental DOM updates.
  */
+import { render as melinaRender, createElement as h, setReconciler } from 'melina/client/render';
 
 interface ProcessData {
     name: string;
@@ -327,7 +331,7 @@ export default function mount(): () => void {
     let isGrouped = localStorage.getItem('bgr_grouped') === 'true'; // Persist preference
     let drawerProcess: string | null = null;
     let drawerTab: 'stdout' | 'stderr' | 'env' | 'config' = 'stdout';
-    let logAutoScroll = true;
+    let logAutoScroll = localStorage.getItem('bgr_autoscroll') === 'true'; // OFF by default
     let logSearch = '';
 
     // ─── Version Badge ───
@@ -717,10 +721,13 @@ export default function mount(): () => void {
         tbody?.querySelectorAll('tr.selected').forEach(r => r.classList.remove('selected'));
     }
 
+    // Use keyed reconciler for efficient log line diffing
+    setReconciler('keyed');
+
     async function refreshDrawerLogs() {
         if (!drawerProcess) return;
         if (drawerTab !== 'stdout' && drawerTab !== 'stderr') return;
-        const logsEl = $('drawer-logs');
+        const logsEl = $('drawer-logs') as HTMLElement;
         if (!logsEl) return;
 
         try {
@@ -729,9 +736,8 @@ export default function mount(): () => void {
             const text = drawerTab === 'stdout' ? (data.stdout || '') : (data.stderr || '');
             const mtime = drawerTab === 'stdout' ? data.stdoutModified : data.stderrModified;
             const filePath = drawerTab === 'stdout' ? data.stdoutPath : data.stderrPath;
-            const lines = text.split('\n');
 
-            // Update file info bar with file path and last-modified timestamp
+            // Update file info bar
             const infoEl = $('log-file-info');
             if (infoEl) {
                 const parts: string[] = [];
@@ -745,40 +751,92 @@ export default function mount(): () => void {
                 infoEl.innerHTML = parts.join(' <span style="color:var(--text-muted)">·</span> ');
             }
 
-            if (lines.length === 0 || (lines.length === 1 && !lines[0])) {
-                logsEl.innerHTML = '<em style="color: var(--text-muted)">No logs available</em>';
-            } else {
-                const search = logSearch.toLowerCase();
-                const html = lines.filter((line: string) => {
-                    if (!search) return true;
-                    return line.toLowerCase().includes(search);
-                }).map((line: string) => {
-                    return `<div class="log-line">${ansiToHtml(line)}</div>`;
-                }).join('');
-                logsEl.innerHTML = html;
+            const lines = text.split('\n');
+
+            // Filter by search
+            const search = logSearch.toLowerCase();
+            const filtered = search
+                ? lines.filter((line: string) => line.toLowerCase().includes(search))
+                : lines;
+
+            // Build keyed VNode tree — reconciler diffs efficiently
+            const isEmpty = filtered.length === 0 || (filtered.length === 1 && !filtered[0]);
+            const vnodes = isEmpty
+                ? h('em', { style: 'color: var(--text-muted)' }, 'No logs available')
+                : h('div', null,
+                    ...filtered.map((line: string, i: number) => {
+                        const num = i + 1;
+                        return h('div', { key: `L${num}`, className: 'log-line', 'data-ln': String(num) },
+                            h('span', { className: 'log-line-num' }, String(num)),
+                            h('span', { className: 'log-line-content', dangerouslySetInnerHTML: { __html: ansiToHtml(line) } }),
+                        );
+                    })
+                );
+
+            melinaRender(vnodes, logsEl);
+
+            // Update line count indicator
+            const countEl = $('log-line-count');
+            if (countEl) {
+                countEl.textContent = `${filtered.length} line${filtered.length !== 1 ? 's' : ''}`;
             }
+
             if (logAutoScroll) {
                 logsEl.scrollTop = logsEl.scrollHeight;
             }
         } catch {
-            logsEl.innerHTML = '<em style="color: var(--text-muted)">Failed to load logs</em>';
+            const logsEl = $('drawer-logs') as HTMLElement;
+            if (logsEl) melinaRender(h('em', { style: 'color: var(--text-muted)' }, 'Failed to load logs'), logsEl);
         }
     }
 
     $('drawer-close-btn')?.addEventListener('click', closeDrawer);
     backdrop?.addEventListener('click', closeDrawer);
 
-    // Auto-scroll toggle
+    // Auto-scroll toggle — pill button with icon + label
     const autoScrollBtn = $('log-autoscroll-btn');
+    function updateAutoScrollBtn() {
+        if (!autoScrollBtn) return;
+        autoScrollBtn.classList.toggle('active', logAutoScroll);
+        // Keep the SVG icon, update the text node
+        const svg = autoScrollBtn.querySelector('svg');
+        autoScrollBtn.textContent = '';
+        if (svg) autoScrollBtn.appendChild(svg);
+        autoScrollBtn.appendChild(document.createTextNode(logAutoScroll ? 'Following' : 'Follow'));
+        autoScrollBtn.title = logAutoScroll ? 'Auto-scroll: ON — click to pause' : 'Auto-scroll: OFF — click to follow';
+    }
+    updateAutoScrollBtn(); // Set initial state
+
     autoScrollBtn?.addEventListener('click', () => {
         logAutoScroll = !logAutoScroll;
-        autoScrollBtn.classList.toggle('active', logAutoScroll);
-        autoScrollBtn.textContent = logAutoScroll ? '↓' : '║';
-        autoScrollBtn.title = logAutoScroll ? 'Auto-scroll ON' : 'Auto-scroll OFF';
+        localStorage.setItem('bgr_autoscroll', String(logAutoScroll));
+        updateAutoScrollBtn();
         if (logAutoScroll) {
             const logsEl = $('drawer-logs');
             if (logsEl) logsEl.scrollTop = logsEl.scrollHeight;
         }
+    });
+
+    // Click log line → expand/collapse (word-wrap toggle)
+    const logsContainer = $('drawer-logs');
+    logsContainer?.addEventListener('click', (e: Event) => {
+        const line = (e.target as Element).closest('.log-line') as HTMLElement;
+        if (!line) return;
+        line.classList.toggle('expanded');
+    });
+
+    // Double-click log line → copy content to clipboard
+    logsContainer?.addEventListener('dblclick', (e: Event) => {
+        const line = (e.target as Element).closest('.log-line') as HTMLElement;
+        if (!line) return;
+        const content = line.querySelector('.log-line-content');
+        if (!content) return;
+        const text = content.textContent || '';
+        navigator.clipboard.writeText(text).then(() => {
+            line.classList.add('copied');
+            setTimeout(() => line.classList.remove('copied'), 1200);
+        });
+        e.preventDefault();
     });
 
     // Log search/filter with debounce

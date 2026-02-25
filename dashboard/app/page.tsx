@@ -120,7 +120,11 @@ export default function DashboardPage() {
                     {/* Log toolbar — visible on stdout/stderr tabs */}
                     <div className="drawer-log-toolbar" id="drawer-log-toolbar">
                         <input type="text" id="log-search" className="log-search" placeholder="Filter logs..." />
-                        <button id="log-autoscroll-btn" className="log-autoscroll active" title="Auto-scroll">↓</button>
+                        <span className="log-line-count" id="log-line-count"></span>
+                        <button id="log-autoscroll-btn" className="log-autoscroll" title="Auto-scroll: OFF">
+                            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7" /></svg>
+                            Follow
+                        </button>
                     </div>
                     <div className="log-file-info" id="log-file-info"></div>
                     <div className="drawer-logs" id="drawer-logs">No logs loaded</div>
