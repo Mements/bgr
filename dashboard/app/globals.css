@@ -1209,6 +1209,7 @@ tr.animate-in:nth-child(10) {
     padding: 1rem 1.5rem;
     min-height: 0;
     background: rgba(0, 0, 0, 0.2);
+    contain: strict;
 }
 
 .drawer-backdrop {
@@ -1431,6 +1432,8 @@ tr.animate-in:nth-child(10) {
     display: flex;
     align-items: baseline;
     gap: 0;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 1.7em;
 }
 
 .log-line:hover {
