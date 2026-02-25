@@ -19,6 +19,10 @@ interface ProcessData {
     group: string | null;
     runtime: string;
     timestamp: string;
+    env: string;
+    configPath: string;
+    stdoutPath: string;
+    stderrPath: string;
 }
 
 // ─── SVG Icon Helpers ───
@@ -322,7 +326,7 @@ export default function mount(): () => void {
     let searchQuery = '';
     let isGrouped = localStorage.getItem('bgr_grouped') === 'true'; // Persist preference
     let drawerProcess: string | null = null;
-    let drawerTab: 'stdout' | 'stderr' = 'stdout';
+    let drawerTab: 'stdout' | 'stderr' | 'env' | 'config' = 'stdout';
     let logAutoScroll = true;
     let logSearch = '';
 
@@ -596,6 +600,64 @@ export default function mount(): () => void {
     const drawer = $('detail-drawer');
     const backdrop = $('drawer-backdrop');
 
+    function switchDrawerPanel(tab: string) {
+        const logToolbar = $('drawer-log-toolbar');
+        const logFileInfo = $('log-file-info');
+        const logsEl = $('drawer-logs');
+        const envEl = $('drawer-env');
+        const configEl = $('drawer-config');
+
+        const isLog = tab === 'stdout' || tab === 'stderr';
+        if (logToolbar) logToolbar.style.display = isLog ? '' : 'none';
+        if (logFileInfo) logFileInfo.style.display = isLog ? '' : 'none';
+        if (logsEl) logsEl.style.display = isLog ? '' : 'none';
+        if (envEl) envEl.style.display = tab === 'env' ? '' : 'none';
+        if (configEl) configEl.style.display = tab === 'config' ? '' : 'none';
+    }
+
+    function renderEnvPanel() {
+        const envEl = $('drawer-env');
+        if (!envEl || !drawerProcess) return;
+        const proc = allProcesses.find(p => p.name === drawerProcess);
+        if (!proc || !proc.env) {
+            envEl.innerHTML = '<div class="env-empty">No environment variables configured</div>';
+            return;
+        }
+        const pairs = proc.env.split(',').filter(Boolean).map(s => {
+            const idx = s.indexOf('=');
+            return idx > 0 ? [s.slice(0, idx), s.slice(idx + 1)] : [s, ''];
+        });
+        if (pairs.length === 0) {
+            envEl.innerHTML = '<div class="env-empty">No environment variables configured</div>';
+            return;
+        }
+        envEl.innerHTML = pairs.map(([k, v]) =>
+            `<div class="env-row"><span class="env-key" title="${k}">${k}</span><span class="env-value">${v}</span></div>`
+        ).join('');
+    }
+
+    async function loadConfigPanel() {
+        const configEditor = $('config-editor') as HTMLTextAreaElement;
+        const configPath = $('config-path');
+        if (!configEditor || !drawerProcess) return;
+
+        try {
+            const res = await fetch(`/api/config/${encodeURIComponent(drawerProcess)}`);
+            const data = await res.json();
+            configEditor.value = data.content || '';
+            if (configPath) {
+                configPath.textContent = data.path || 'No config file';
+                configPath.title = data.path || '';
+            }
+            if (!data.exists) {
+                configEditor.placeholder = 'No .config.toml found for this process';
+            }
+        } catch {
+            configEditor.value = '';
+            if (configPath) configPath.textContent = 'Failed to load config';
+        }
+    }
+
     function openDrawer(name: string) {
         drawerProcess = name;
         drawerTab = 'stdout';
@@ -633,6 +695,9 @@ export default function mount(): () => void {
             tab.classList.toggle('active', (tab as HTMLElement).dataset.tab === drawerTab);
         });
 
+        // Show correct panel
+        switchDrawerPanel(drawerTab);
+
         // Show drawer
         drawer?.classList.add('open');
         backdrop?.classList.add('active');
@@ -654,6 +719,7 @@ export default function mount(): () => void {
 
     async function refreshDrawerLogs() {
         if (!drawerProcess) return;
+        if (drawerTab !== 'stdout' && drawerTab !== 'stderr') return;
         const logsEl = $('drawer-logs');
         if (!logsEl) return;
 
@@ -662,17 +728,21 @@ export default function mount(): () => void {
             const data = await res.json();
             const text = drawerTab === 'stdout' ? (data.stdout || '') : (data.stderr || '');
             const mtime = drawerTab === 'stdout' ? data.stdoutModified : data.stderrModified;
+            const filePath = drawerTab === 'stdout' ? data.stdoutPath : data.stderrPath;
             const lines = text.split('\n');
 
-            // Update file info bar with last-modified timestamp
+            // Update file info bar with file path and last-modified timestamp
             const infoEl = $('log-file-info');
             if (infoEl) {
+                const parts: string[] = [];
+                if (filePath) {
+                    parts.push(`<span style="color:var(--text-dim)" title="${filePath}">${filePath}</span>`);
+                }
                 if (mtime) {
                     const ago = formatTimeAgo(new Date(mtime));
-                    infoEl.innerHTML = `<span style="color:var(--text-muted)">Last updated:</span> <span style="color:var(--text-secondary)">${ago}</span>`;
-                } else {
-                    infoEl.textContent = '';
+                    parts.push(`<span style="color:var(--text-secondary)">${ago}</span>`);
                 }
+                infoEl.innerHTML = parts.join(' <span style="color:var(--text-muted)">·</span> ');
             }
 
             if (lines.length === 0 || (lines.length === 1 && !lines[0])) {
@@ -724,13 +794,82 @@ export default function mount(): () => void {
     // Tab switching
     drawer?.querySelectorAll('.drawer-tab').forEach(tab => {
         tab.addEventListener('click', () => {
-            drawerTab = (tab as HTMLElement).dataset.tab as 'stdout' | 'stderr';
+            drawerTab = (tab as HTMLElement).dataset.tab as typeof drawerTab;
             drawer.querySelectorAll('.drawer-tab').forEach(t => {
                 t.classList.toggle('active', (t as HTMLElement).dataset.tab === drawerTab);
             });
-            refreshDrawerLogs();
+            switchDrawerPanel(drawerTab);
+            if (drawerTab === 'stdout' || drawerTab === 'stderr') {
+                refreshDrawerLogs();
+            } else if (drawerTab === 'env') {
+                renderEnvPanel();
+            } else if (drawerTab === 'config') {
+                loadConfigPanel();
+            }
         });
     });
+
+    // Config save button
+    $('config-save-btn')?.addEventListener('click', async () => {
+        if (!drawerProcess) return;
+        const editor = $('config-editor') as HTMLTextAreaElement;
+        if (!editor) return;
+        try {
+            const res = await fetch(`/api/config/${encodeURIComponent(drawerProcess)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: editor.value }),
+            });
+            if (res.ok) {
+                showToast(`Config saved for "${drawerProcess}"`, 'success');
+                // Restart the process
+                await fetch(`/api/restart/${encodeURIComponent(drawerProcess)}`, { method: 'POST' });
+                showToast(`Restarted "${drawerProcess}"`, 'success');
+                await loadProcessesFresh();
+            } else {
+                const data = await res.json();
+                showToast(data.error || 'Failed to save config', 'error');
+            }
+        } catch {
+            showToast('Failed to save config', 'error');
+        }
+    });
+
+    // ─── Drawer Resize ───
+
+    const resizeHandle = $('drawer-resize-handle');
+    if (resizeHandle && drawer) {
+        let startX = 0;
+        let startWidth = 0;
+
+        const onMouseMove = (e: MouseEvent) => {
+            const delta = startX - e.clientX;
+            const newWidth = Math.min(Math.max(startWidth + delta, 360), window.innerWidth * 0.85);
+            drawer.style.width = `${newWidth}px`;
+        };
+
+        const onMouseUp = () => {
+            drawer.classList.remove('resizing');
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+            // Persist width
+            localStorage.setItem('bgr_drawer_width', drawer.style.width);
+        };
+
+        resizeHandle.addEventListener('mousedown', (e: Event) => {
+            const me = e as MouseEvent;
+            startX = me.clientX;
+            startWidth = drawer.offsetWidth;
+            drawer.classList.add('resizing');
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+            me.preventDefault();
+        });
+
+        // Restore saved width
+        const savedWidth = localStorage.getItem('bgr_drawer_width');
+        if (savedWidth) drawer.style.width = savedWidth;
+    }
 
     // ─── New Process Modal ───
 

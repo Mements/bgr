@@ -30,5 +30,10 @@ export async function GET(req: Request, { params }: { params: { name: string } }
         getFileMtime(proc.stderr_path),
     ]);
 
-    return Response.json({ stdout, stderr, stdoutModified, stderrModified });
+    return Response.json({
+        stdout, stderr,
+        stdoutModified, stderrModified,
+        stdoutPath: proc.stdout_path,
+        stderrPath: proc.stderr_path,
+    });
 }

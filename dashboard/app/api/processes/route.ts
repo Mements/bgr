@@ -168,6 +168,10 @@ async function fetchProcesses(): Promise<any[]> {
                 group: getProcessGroup(p.env),
                 runtime: calculateRuntime(p.timestamp),
                 timestamp: p.timestamp,
+                env: p.env || '',
+                configPath: p.configPath || '',
+                stdoutPath: p.stdout_path || '',
+                stderrPath: p.stderr_path || '',
             };
         });
     }) ?? [];

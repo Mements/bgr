@@ -102,6 +102,7 @@ export default function DashboardPage() {
 
             {/* Detail Drawer */}
             <div className="detail-drawer" id="detail-drawer">
+                <div className="drawer-resize-handle" id="drawer-resize-handle"></div>
                 <div className="drawer-header">
                     <h3>
                         <span id="drawer-process-name">Process</span>
@@ -112,14 +113,29 @@ export default function DashboardPage() {
                 <div className="drawer-tabs">
                     <button className="drawer-tab active" data-tab="stdout">Stdout</button>
                     <button className="drawer-tab" data-tab="stderr">Stderr</button>
+                    <button className="drawer-tab" data-tab="env">Env</button>
+                    <button className="drawer-tab" data-tab="config">Config</button>
                 </div>
                 <div className="drawer-content">
-                    <div className="drawer-log-toolbar">
+                    {/* Log toolbar — visible on stdout/stderr tabs */}
+                    <div className="drawer-log-toolbar" id="drawer-log-toolbar">
                         <input type="text" id="log-search" className="log-search" placeholder="Filter logs..." />
                         <button id="log-autoscroll-btn" className="log-autoscroll active" title="Auto-scroll">↓</button>
                     </div>
                     <div className="log-file-info" id="log-file-info"></div>
                     <div className="drawer-logs" id="drawer-logs">No logs loaded</div>
+
+                    {/* Env panel — visible on env tab */}
+                    <div className="drawer-env" id="drawer-env" style={{ display: 'none' }}></div>
+
+                    {/* Config editor — visible on config tab */}
+                    <div className="drawer-config" id="drawer-config" style={{ display: 'none' }}>
+                        <div className="config-toolbar" id="config-toolbar">
+                            <span className="config-path" id="config-path"></span>
+                            <button className="btn btn-primary btn-sm" id="config-save-btn">Save & Restart</button>
+                        </div>
+                        <textarea className="config-editor" id="config-editor" spellCheck={false}></textarea>
+                    </div>
                 </div>
             </div>
 
