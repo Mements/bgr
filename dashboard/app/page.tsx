@@ -109,36 +109,70 @@ export default function DashboardPage() {
                     </h3>
                     <button className="drawer-close" id="drawer-close-btn">✕</button>
                 </div>
-                <div className="drawer-meta" id="drawer-meta"></div>
-                <div className="drawer-tabs">
-                    <button className="drawer-tab active" data-tab="stdout">Stdout</button>
-                    <button className="drawer-tab" data-tab="stderr">Stderr</button>
-                    <button className="drawer-tab" data-tab="env">Env</button>
-                    <button className="drawer-tab" data-tab="config">Config</button>
-                </div>
-                <div className="drawer-content">
-                    {/* Log toolbar — visible on stdout/stderr tabs */}
-                    <div className="drawer-log-toolbar" id="drawer-log-toolbar">
-                        <input type="text" id="log-search" className="log-search" placeholder="Filter logs..." />
-                        <span className="log-line-count" id="log-line-count"></span>
-                        <button id="log-autoscroll-btn" className="log-autoscroll" title="Auto-scroll: OFF">
-                            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7" /></svg>
-                            Follow
+
+                <div className="drawer-accordion">
+                    {/* ─── Section 1: Info ─── */}
+                    <div className="accordion-section" id="accordion-info">
+                        <button className="accordion-trigger" data-section="info">
+                            <svg className="accordion-chevron" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" /></svg>
+                            <span>Info</span>
                         </button>
-                    </div>
-                    <div className="log-file-info" id="log-file-info"></div>
-                    <div className="drawer-logs" id="drawer-logs">No logs loaded</div>
-
-                    {/* Env panel — visible on env tab */}
-                    <div className="drawer-env" id="drawer-env" style={{ display: 'none' }}></div>
-
-                    {/* Config editor — visible on config tab */}
-                    <div className="drawer-config" id="drawer-config" style={{ display: 'none' }}>
-                        <div className="config-toolbar" id="config-toolbar">
-                            <span className="config-path" id="config-path"></span>
-                            <button className="btn btn-primary btn-sm" id="config-save-btn">Save & Restart</button>
+                        <div className="accordion-body">
+                            <div className="drawer-meta" id="drawer-meta"></div>
                         </div>
-                        <textarea className="config-editor" id="config-editor" spellCheck={false}></textarea>
+                    </div>
+
+                    {/* ─── Section 2: Config ─── */}
+                    <div className="accordion-section" id="accordion-config">
+                        <button className="accordion-trigger" data-section="config">
+                            <svg className="accordion-chevron" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" /></svg>
+                            <span>Config</span>
+                        </button>
+                        <div className="accordion-body">
+                            <div className="accordion-subtabs" id="config-subtabs">
+                                <button className="accordion-subtab active" data-subtab="toml">config.toml</button>
+                                <button className="accordion-subtab" data-subtab="env">ENV</button>
+                            </div>
+                            <div className="accordion-sub-content" id="config-sub-content">
+                                <div id="config-panel-toml">
+                                    <div className="config-toolbar" id="config-toolbar">
+                                        <span className="config-path" id="config-path"></span>
+                                        <button className="btn btn-primary btn-sm" id="config-save-btn">Save &amp; Restart</button>
+                                    </div>
+                                    <textarea className="config-editor" id="config-editor" spellCheck={false}></textarea>
+                                </div>
+                                <div id="config-panel-env" style={{ display: 'none' }}>
+                                    <div className="drawer-env" id="drawer-env"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ─── Section 3: Logs ─── */}
+                    <div className="accordion-section open" id="accordion-logs">
+                        <button className="accordion-trigger" data-section="logs">
+                            <svg className="accordion-chevron" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" /></svg>
+                            <span>Logs</span>
+                        </button>
+                        <div className="accordion-body accordion-body-logs">
+                            <div className="accordion-subtabs" id="log-subtabs">
+                                <button className="accordion-subtab active" data-subtab="stdout">stdout</button>
+                                <button className="accordion-subtab" data-subtab="stderr">
+                                    stderr
+                                    <span className="stderr-badge" id="stderr-badge" style={{ display: 'none' }}>0</span>
+                                </button>
+                            </div>
+                            <div className="drawer-log-toolbar" id="drawer-log-toolbar">
+                                <input type="text" id="log-search" className="log-search" placeholder="Filter logs..." />
+                                <span className="log-line-count" id="log-line-count"></span>
+                                <button id="log-autoscroll-btn" className="log-autoscroll" title="Auto-scroll: OFF">
+                                    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7" /></svg>
+                                    Follow
+                                </button>
+                            </div>
+                            <div className="log-file-info" id="log-file-info"></div>
+                            <div className="drawer-logs" id="drawer-logs">No logs loaded</div>
+                        </div>
                     </div>
                 </div>
             </div>

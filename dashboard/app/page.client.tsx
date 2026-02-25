@@ -330,7 +330,9 @@ export default function mount(): () => void {
     let searchQuery = '';
     let isGrouped = localStorage.getItem('bgr_grouped') === 'true'; // Persist preference
     let drawerProcess: string | null = null;
-    let drawerTab: 'stdout' | 'stderr' | 'env' | 'config' = 'stdout';
+    let drawerTab: 'stdout' | 'stderr' = 'stdout';
+    let activeSection = 'logs'; // Which accordion section is open: 'info' | 'config' | 'logs'
+    let configSubtab = 'toml'; // 'toml' | 'env'
     let logAutoScroll = localStorage.getItem('bgr_autoscroll') === 'true'; // OFF by default
     let logSearch = '';
     let logLines: string[] = [];  // Accumulated log lines
@@ -607,19 +609,45 @@ export default function mount(): () => void {
     const drawer = $('detail-drawer');
     const backdrop = $('drawer-backdrop');
 
-    function switchDrawerPanel(tab: string) {
-        const logToolbar = $('drawer-log-toolbar');
-        const logFileInfo = $('log-file-info');
-        const logsEl = $('drawer-logs');
-        const envEl = $('drawer-env');
-        const configEl = $('drawer-config');
+    function openAccordionSection(section: string) {
+        activeSection = section;
+        const sections = drawer?.querySelectorAll('.accordion-section');
+        sections?.forEach(el => {
+            const s = el.querySelector('.accordion-trigger')?.getAttribute('data-section');
+            el.classList.toggle('open', s === section);
+        });
 
-        const isLog = tab === 'stdout' || tab === 'stderr';
-        if (logToolbar) logToolbar.style.display = isLog ? '' : 'none';
-        if (logFileInfo) logFileInfo.style.display = isLog ? '' : 'none';
-        if (logsEl) logsEl.style.display = isLog ? '' : 'none';
-        if (envEl) envEl.style.display = tab === 'env' ? '' : 'none';
-        if (configEl) configEl.style.display = tab === 'config' ? '' : 'none';
+        // Load data for the opened section
+        if (section === 'config') {
+            if (configSubtab === 'toml') loadConfigPanel();
+            else renderEnvPanel();
+        } else if (section === 'logs') {
+            refreshDrawerLogs();
+        }
+    }
+
+    function switchConfigSubtab(subtab: string) {
+        configSubtab = subtab;
+        const tomlPanel = $('config-panel-toml');
+        const envPanel = $('config-panel-env');
+        if (tomlPanel) tomlPanel.style.display = subtab === 'toml' ? '' : 'none';
+        if (envPanel) envPanel.style.display = subtab === 'env' ? '' : 'none';
+        $('config-subtabs')?.querySelectorAll('.accordion-subtab').forEach(btn => {
+            btn.classList.toggle('active', (btn as HTMLElement).dataset.subtab === subtab);
+        });
+        if (subtab === 'toml') loadConfigPanel();
+        else renderEnvPanel();
+    }
+
+    function switchLogSubtab(subtab: string) {
+        drawerTab = subtab as 'stdout' | 'stderr';
+        $('log-subtabs')?.querySelectorAll('.accordion-subtab').forEach(btn => {
+            btn.classList.toggle('active', (btn as HTMLElement).dataset.subtab === subtab);
+        });
+        logLines = [];
+        logOffset = 0;
+        logCurrentTab = '';
+        refreshDrawerLogs();
     }
 
     function renderEnvPanel() {
@@ -697,13 +725,11 @@ export default function mount(): () => void {
             meta.replaceChildren(...items);
         }
 
-        // Update tab state
-        drawer?.querySelectorAll('.drawer-tab').forEach(tab => {
-            tab.classList.toggle('active', (tab as HTMLElement).dataset.tab === drawerTab);
-        });
+        // Reset log subtab to stdout
+        switchLogSubtab('stdout');
 
-        // Show correct panel
-        switchDrawerPanel(drawerTab);
+        // Open logs accordion by default
+        openAccordionSection('logs');
 
         // Show drawer
         drawer?.classList.add('open');
@@ -717,7 +743,33 @@ export default function mount(): () => void {
         logLines = [];
         logOffset = 0;
         logCurrentTab = '';
+
+        // Fetch stderr line count for badge
+        updateStderrBadge(name);
         refreshDrawerLogs();
+    }
+
+    async function updateStderrBadge(name: string) {
+        const badge = $('stderr-badge');
+        if (!badge) return;
+        try {
+            const res = await fetch(`/api/logs/${encodeURIComponent(name)}?tab=stderr&offset=0`);
+            const data = await res.json();
+            const text: string = data.text || '';
+            if (!text.trim()) {
+                badge.style.display = 'none';
+                return;
+            }
+            const count = text.split('\n').filter(Boolean).length;
+            if (count > 0) {
+                badge.textContent = count > 999 ? `${Math.floor(count / 1000)}k` : String(count);
+                badge.style.display = '';
+            } else {
+                badge.style.display = 'none';
+            }
+        } catch {
+            badge.style.display = 'none';
+        }
     }
 
     function closeDrawer() {
@@ -875,24 +927,27 @@ export default function mount(): () => void {
         }, 200);
     });
 
-    // Tab switching
-    drawer?.querySelectorAll('.drawer-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            drawerTab = (tab as HTMLElement).dataset.tab as typeof drawerTab;
-            drawer.querySelectorAll('.drawer-tab').forEach(t => {
-                t.classList.toggle('active', (t as HTMLElement).dataset.tab === drawerTab);
-            });
-            switchDrawerPanel(drawerTab);
-            if (drawerTab === 'stdout' || drawerTab === 'stderr') {
-                logLines = [];
-                logOffset = 0;
-                logCurrentTab = '';
-                refreshDrawerLogs();
-            } else if (drawerTab === 'env') {
-                renderEnvPanel();
-            } else if (drawerTab === 'config') {
-                loadConfigPanel();
-            }
+    // Accordion section triggers
+    drawer?.querySelectorAll('.accordion-trigger').forEach(trigger => {
+        trigger.addEventListener('click', () => {
+            const section = (trigger as HTMLElement).dataset.section;
+            if (section) openAccordionSection(section);
+        });
+    });
+
+    // Config subtab switching
+    $('config-subtabs')?.querySelectorAll('.accordion-subtab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const subtab = (btn as HTMLElement).dataset.subtab;
+            if (subtab) switchConfigSubtab(subtab);
+        });
+    });
+
+    // Log subtab switching
+    $('log-subtabs')?.querySelectorAll('.accordion-subtab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const subtab = (btn as HTMLElement).dataset.subtab;
+            if (subtab) switchLogSubtab(subtab);
         });
     });
 
