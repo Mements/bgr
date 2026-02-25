@@ -1,24 +1,50 @@
 /**
- * GET /api/logs/:name — Read ALL lines of process stdout/stderr
- * Returns full log content + file modification timestamps
+ * GET /api/logs/:name — Read process stdout/stderr logs
+ *
+ * Supports incremental loading via query params:
+ *   ?tab=stdout|stderr   — which log to read (default: stdout)
+ *   ?offset=N            — byte offset to start reading from (default: 0 = full file)
+ *
+ * Returns:
+ *   { text, size, mtime, filePath }
+ *
+ * On first call (offset=0), returns full file content.
+ * On subsequent calls (offset=previousSize), returns only new bytes.
+ * Client uses `size` as the offset for the next request.
  */
 import { getProcess } from '../../../../../src/db';
-import { stat, readFile } from 'fs/promises';
+import { stat, open } from 'fs/promises';
 
-async function getFileMtime(path: string): Promise<string | null> {
-    try {
-        const s = await stat(path);
-        return s.mtime.toISOString();
-    } catch {
-        return null;
-    }
+interface FileInfo {
+    text: string;
+    size: number;
+    mtime: string | null;
+    filePath: string;
 }
 
-async function readFullFile(path: string): Promise<string> {
+async function readLogFile(path: string, offset: number): Promise<FileInfo> {
     try {
-        return await readFile(path, 'utf-8');
+        const s = await stat(path);
+        const size = s.size;
+        const mtime = s.mtime.toISOString();
+
+        // If offset >= current size, no new data
+        if (offset >= size) {
+            return { text: '', size, mtime, filePath: path };
+        }
+
+        // Read from offset to end
+        const handle = await open(path, 'r');
+        try {
+            const bytesToRead = size - offset;
+            const buffer = Buffer.alloc(bytesToRead);
+            await handle.read(buffer, 0, bytesToRead, offset);
+            return { text: buffer.toString('utf-8'), size, mtime, filePath: path };
+        } finally {
+            await handle.close();
+        }
     } catch {
-        return '';
+        return { text: '', size: 0, mtime: null, filePath: path };
     }
 }
 
@@ -30,17 +56,12 @@ export async function GET(req: Request, { params }: { params: { name: string } }
         return Response.json({ error: 'Process not found' }, { status: 404 });
     }
 
-    const [stdout, stderr, stdoutModified, stderrModified] = await Promise.all([
-        readFullFile(proc.stdout_path),
-        readFullFile(proc.stderr_path),
-        getFileMtime(proc.stdout_path),
-        getFileMtime(proc.stderr_path),
-    ]);
+    const url = new URL(req.url);
+    const tab = url.searchParams.get('tab') || 'stdout';
+    const offset = parseInt(url.searchParams.get('offset') || '0', 10) || 0;
 
-    return Response.json({
-        stdout, stderr,
-        stdoutModified, stderrModified,
-        stdoutPath: proc.stdout_path,
-        stderrPath: proc.stderr_path,
-    });
+    const path = tab === 'stderr' ? proc.stderr_path : proc.stdout_path;
+    const info = await readLogFile(path, offset);
+
+    return Response.json(info);
 }

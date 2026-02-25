@@ -333,6 +333,9 @@ export default function mount(): () => void {
     let drawerTab: 'stdout' | 'stderr' | 'env' | 'config' = 'stdout';
     let logAutoScroll = localStorage.getItem('bgr_autoscroll') === 'true'; // OFF by default
     let logSearch = '';
+    let logLines: string[] = [];  // Accumulated log lines
+    let logOffset = 0;            // Byte offset for incremental fetching
+    let logCurrentTab = '';       // Track tab to reset on switch
 
     // ─── Version Badge ───
     const versionBadge = $('version-badge');
@@ -711,6 +714,9 @@ export default function mount(): () => void {
         const row = tbody?.querySelector(`tr[data-process-name="${name}"]`);
         if (row) row.classList.add('selected');
 
+        logLines = [];
+        logOffset = 0;
+        logCurrentTab = '';
         refreshDrawerLogs();
     }
 
@@ -730,34 +736,54 @@ export default function mount(): () => void {
         const logsEl = $('drawer-logs') as HTMLElement;
         if (!logsEl) return;
 
+        // Reset on tab switch
+        if (logCurrentTab !== drawerTab) {
+            logLines = [];
+            logOffset = 0;
+            logCurrentTab = drawerTab;
+        }
+
         try {
-            const res = await fetch(`/api/logs/${encodeURIComponent(drawerProcess)}`);
+            const res = await fetch(`/api/logs/${encodeURIComponent(drawerProcess)}?tab=${drawerTab}&offset=${logOffset}`);
             const data = await res.json();
-            const text = drawerTab === 'stdout' ? (data.stdout || '') : (data.stderr || '');
-            const mtime = drawerTab === 'stdout' ? data.stdoutModified : data.stderrModified;
-            const filePath = drawerTab === 'stdout' ? data.stdoutPath : data.stderrPath;
+            const newText: string = data.text || '';
 
             // Update file info bar
             const infoEl = $('log-file-info');
             if (infoEl) {
                 const parts: string[] = [];
-                if (filePath) {
-                    parts.push(`<span style="color:var(--text-dim)" title="${filePath}">${filePath}</span>`);
+                if (data.filePath) {
+                    parts.push(`<span style="color:var(--text-dim)" title="${data.filePath}">${data.filePath}</span>`);
                 }
-                if (mtime) {
-                    const ago = formatTimeAgo(new Date(mtime));
+                if (data.mtime) {
+                    const ago = formatTimeAgo(new Date(data.mtime));
                     parts.push(`<span style="color:var(--text-secondary)">${ago}</span>`);
                 }
                 infoEl.innerHTML = parts.join(' <span style="color:var(--text-muted)">·</span> ');
             }
 
-            const lines = text.split('\n');
+            // Append new lines from incremental data
+            if (newText) {
+                const newLines = newText.split('\n');
+                // If we have existing lines, the last line might be incomplete
+                // (split across fetches). Merge it with the first new chunk.
+                if (logLines.length > 0 && logOffset > 0) {
+                    // Last line from previous fetch may have been partial
+                    logLines[logLines.length - 1] += newLines[0];
+                    logLines.push(...newLines.slice(1));
+                } else {
+                    logLines = newLines;
+                }
+            }
+
+            // Track offset for next incremental fetch
+            logOffset = data.size || 0;
 
             // Filter by search
             const search = logSearch.toLowerCase();
             const filtered = search
-                ? lines.filter((line: string) => line.toLowerCase().includes(search))
-                : lines;
+                ? logLines.filter((line: string) => line.toLowerCase().includes(search))
+                : logLines;
 
             // Build keyed VNode tree — reconciler diffs efficiently
             const isEmpty = filtered.length === 0 || (filtered.length === 1 && !filtered[0]);
@@ -858,6 +884,9 @@ export default function mount(): () => void {
             });
             switchDrawerPanel(drawerTab);
             if (drawerTab === 'stdout' || drawerTab === 'stderr') {
+                logLines = [];
+                logOffset = 0;
+                logCurrentTab = '';
                 refreshDrawerLogs();
             } else if (drawerTab === 'env') {
                 renderEnvPanel();
