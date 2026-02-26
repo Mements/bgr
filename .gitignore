@@ -3,3 +3,12 @@ node_modules
 dist
 bun.lockb
 *.log
+.agents
+
+# Temp/debug output
+*-stdout.txt
+*-stderr.txt
+page-*.txt
+hn-post.txt
+screenshot.png
+logo.png

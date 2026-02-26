@@ -34,7 +34,11 @@ export default function DashboardPage() {
             {/* Toolbar */}
             <div className="toolbar">
                 <div className="toolbar-left">
-                    <h2>Processes</h2>
+                    <div className="toolbar-brand">
+                        <span className="toolbar-logo">⚡</span>
+                        <h2>bgrun</h2>
+                        <span className="version-badge" id="version-badge">...</span>
+                    </div>
                     <div className="search-wrapper">
                         <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <circle cx="11" cy="11" r="8" />
@@ -43,27 +47,22 @@ export default function DashboardPage() {
                         <input type="text" className="search-input" id="search-input" placeholder="Filter processes..." />
                         <span className="search-shortcut">/</span>
                     </div>
-                    <button className="btn btn-ghost btn-icon" id="group-toggle-btn" title="Toggle Grouping">
+                </div>
+                <div className="toolbar-right">
+                    <button className="btn btn-ghost btn-icon" id="refresh-btn" title="Refresh">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M4 21v-7" />
-                            <path d="M4 10V3" />
-                            <path d="M12 21v-9" />
-                            <path d="M12 8V3" />
-                            <path d="M20 21v-5" />
-                            <path d="M20 12V3" />
-                            <path d="M1 14h6" />
-                            <path d="M9 8h6" />
-                            <path d="M17 16h6" />
+                            <polyline points="23 4 23 10 17 10" />
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
                         </svg>
                     </button>
+                    <button className="btn btn-primary" id="new-process-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                        </svg>
+                        New Process
+                    </button>
                 </div>
-                <button className="btn btn-primary" id="new-process-btn">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="12" y1="5" x2="12" y2="19" />
-                        <line x1="5" y1="12" x2="19" y2="12" />
-                    </svg>
-                    New Process
-                </button>
             </div>
 
             {/* Process Table */}
@@ -77,7 +76,7 @@ export default function DashboardPage() {
                             <th style={{ width: '70px' }}>Port</th>
                             <th style={{ width: '70px' }}>Memory</th>
                             <th>Command</th>
-                            <th style={{ width: '80px' }}>Runtime</th>
+                            <th style={{ width: '100px' }}>Runtime</th>
                             <th style={{ width: '150px' }}>Actions</th>
                         </tr>
                     </thead>

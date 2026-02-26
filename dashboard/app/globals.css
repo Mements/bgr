@@ -208,7 +208,7 @@ body::after {
 .container {
     max-width: 1400px;
     margin: 0 auto;
-    padding: 1.75rem 2rem;
+    padding: 1rem 2rem;
     position: relative;
     z-index: 1;
     animation: fadeIn 0.4s ease;
@@ -427,7 +427,6 @@ body::after {
     color: var(--info);
 }
 
-/* ─── Toolbar ─── */
 .toolbar {
     display: flex;
     justify-content: space-between;
@@ -443,11 +442,33 @@ body::after {
     flex: 1;
 }
 
+.toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.toolbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+}
+
+.toolbar-logo {
+    font-size: 1.1rem;
+}
+
 .toolbar h2 {
     font-size: 1.125rem;
-    font-weight: 600;
-    color: var(--text-primary);
+    font-weight: 700;
+    background: var(--accent-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -0.02em;
     white-space: nowrap;
+    margin-right: 0.25rem;
 }
 
 /* ─── Search ─── */
@@ -625,27 +646,81 @@ table {
 }
 
 /* ─── Group Header ─── */
+.group-header {
+    cursor: pointer;
+    user-select: none;
+}
+
 .group-header td {
-    padding: 1.5rem 0.5rem 0.5rem 1.25rem !important;
-    background: transparent !important;
-    border: none !important;
+    padding: 0.625rem 1.25rem 0.375rem 1.25rem !important;
+    background: rgba(255, 255, 255, 0.015) !important;
+    border-bottom: 1px solid var(--border-subtle) !important;
+    border-top: 1px solid var(--border-glass) !important;
+}
+
+.group-header:first-child td {
+    border-top: none !important;
+}
+
+.group-header:hover td {
+    background: var(--bg-hover) !important;
 }
 
 .group-label {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-muted);
-    opacity: 0.8;
+    gap: 0.375rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--text-dim);
 }
 
-.group-icon {
-    font-size: 1rem;
-    opacity: 0.7;
+.group-chevron {
+    width: 12px;
+    height: 12px;
+    stroke: var(--text-dim);
+    fill: none;
+    stroke-width: 2.5;
+    transition: transform var(--transition-fast);
+    transform: rotate(90deg);
+    flex-shrink: 0;
+}
+
+.group-header.collapsed .group-chevron {
+    transform: rotate(0deg);
+}
+
+.group-name {
+    color: var(--text-muted);
+    font-size: 0.6875rem;
+    font-family: var(--font-mono);
+    letter-spacing: 0.01em;
+    font-weight: 500;
+}
+
+.group-counts {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-left: auto;
+    font-size: 0.625rem;
+    font-weight: 500;
+}
+
+.group-count-running {
+    color: var(--text-dim);
+}
+
+.group-count-running.has-running {
+    color: var(--success-soft);
+}
+
+.group-count-sep {
+    color: var(--border-hover);
+}
+
+.group-count-total {
+    color: var(--text-dim);
 }
 
 th {
@@ -837,6 +912,7 @@ tr.animate-in:nth-child(10) {
     color: var(--text-muted);
     font-size: 0.8125rem;
     font-family: var(--font-mono);
+    white-space: nowrap;
 }
 
 /* ─── Action Buttons (SVG-based) ─── */

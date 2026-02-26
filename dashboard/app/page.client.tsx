@@ -13,15 +13,14 @@ import { render as melinaRender, createElement as h, setReconciler } from 'melin
 
 interface ProcessData {
     name: string;
-    command: string;
-    directory: string;
     pid: number;
     running: boolean;
-    port: number | null;
-    ports: number[];
-    memory: number; // bytes
-    group: string | null;
-    runtime: string;
+    port: string;
+    command: string;
+    memory: number;
+    runtime: number;
+    directory: string;
+    group?: string;
     timestamp: string;
     env: string;
     configPath: string;
@@ -124,6 +123,17 @@ function formatTimeAgo(date: Date): string {
     return `${days}d ago`;
 }
 
+// ─── Helpers ───
+
+function shortenPath(dir: string): string {
+    if (!dir) return '';
+    const normalized = dir.replace(/\\/g, '/');
+    const parts = normalized.split('/');
+    // Show last 2 segments  (e.g. "Code/bgr" instead of "c:/Code/bgr")
+    if (parts.length > 2) return parts.slice(-2).join('/');
+    return normalized;
+}
+
 // ─── JSX Components ───
 
 function ProcessRow({ p, animate }: { p: ProcessData; animate?: boolean }) {
@@ -178,13 +188,20 @@ function ProcessRow({ p, animate }: { p: ProcessData; animate?: boolean }) {
     );
 }
 
-function GroupHeader({ name }: { name: string }) {
+function GroupHeader({ name, running, total, collapsed }: { name: string; running: number; total: number; collapsed: boolean }) {
+    // Show short folder name as label, full path as title
+    const shortName = shortenPath(name);
     return (
-        <tr className="group-header">
+        <tr className={`group-header ${collapsed ? 'collapsed' : ''}`} data-group-name={name}>
             <td colSpan={8}>
-                <div className="group-label">
-                    <span className="group-icon">📂</span>
-                    {name}
+                <div className="group-label" title={name}>
+                    <svg className="group-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6" /></svg>
+                    <span className="group-name">{shortName}</span>
+                    <span className="group-counts">
+                        <span className={`group-count-running ${running > 0 ? 'has-running' : ''}`}>{running} running</span>
+                        <span className="group-count-sep">·</span>
+                        <span className="group-count-total">{total} total</span>
+                    </span>
                 </div>
             </td>
         </tr>
@@ -328,10 +345,11 @@ export default function mount(): () => void {
     let isFirstLoad = true;
     let allProcesses: ProcessData[] = [];
     let searchQuery = '';
-    let isGrouped = localStorage.getItem('bgr_grouped') === 'true'; // Persist preference
+    let collapsedGroups: Set<string> = new Set(JSON.parse(localStorage.getItem('bgr_collapsed_groups') || '[]'));
     let drawerProcess: string | null = null;
     let drawerTab: 'stdout' | 'stderr' = 'stdout';
     let activeSection = 'logs'; // Which accordion section is open: 'info' | 'config' | 'logs'
+    let mutationUntil = 0; // Timestamp: ignore SSE updates until this time (after mutations)
     let configSubtab = 'toml'; // 'toml' | 'env'
     let logAutoScroll = localStorage.getItem('bgr_autoscroll') === 'true'; // OFF by default
     let logSearch = '';
@@ -419,46 +437,48 @@ export default function mount(): () => void {
 
         const animate = isFirstLoad;
 
-        if (isGrouped) {
-            // Grouping Logic
-            const groups: Record<string, ProcessData[]> = {};
-            const ungrouped: ProcessData[] = [];
+        // Group by working directory
+        const groups: Record<string, ProcessData[]> = {};
+        processes.forEach(p => {
+            const key = p.directory || 'Unknown';
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(p);
+        });
 
-            processes.forEach(p => {
-                if (p.group) {
-                    if (!groups[p.group]) groups[p.group] = [];
-                    groups[p.group].push(p);
-                } else {
-                    ungrouped.push(p);
-                }
-            });
+        const nodes: Node[] = [];
+        const sortedGroupKeys = Object.keys(groups).sort();
 
-            const nodes: Node[] = [];
-
-            // Render groups first
-            Object.keys(groups).sort().forEach(groupName => {
-                nodes.push(<GroupHeader name={groupName} /> as unknown as Node);
-                groups[groupName].forEach(p => {
-                    nodes.push(<ProcessRow p={p} animate={animate} /> as unknown as Node);
-                });
-            });
-
-            // Render ungrouped last (with header if groups exist)
-            if (ungrouped.length > 0) {
-                if (Object.keys(groups).length > 0) {
-                    nodes.push(<GroupHeader name="Ungrouped" /> as unknown as Node);
-                }
-                ungrouped.forEach(p => {
+        // Always show group headers for every directory
+        sortedGroupKeys.forEach(groupDir => {
+            const procs = groups[groupDir];
+            const running = procs.filter(p => p.running).length;
+            const collapsed = collapsedGroups.has(groupDir);
+            nodes.push(<GroupHeader name={groupDir} running={running} total={procs.length} collapsed={collapsed} /> as unknown as Node);
+            if (!collapsed) {
+                procs.forEach(p => {
                     nodes.push(<ProcessRow p={p} animate={animate} /> as unknown as Node);
                 });
             }
+        });
 
-            tbody.replaceChildren(...nodes);
-        } else {
-            // Standard List View
-            const rows = processes.map(p => <ProcessRow p={p} animate={animate} /> as unknown as Node);
-            tbody.replaceChildren(...rows);
-        }
+        tbody.replaceChildren(...nodes);
+
+        // Add click handlers for group headers (toggle collapse)
+        tbody.querySelectorAll('.group-header').forEach(header => {
+            header.addEventListener('click', (e: Event) => {
+                // Don't collapse if clicking action buttons
+                if ((e.target as Element).closest('[data-action]')) return;
+                const groupName = (header as HTMLElement).dataset.groupName;
+                if (!groupName) return;
+                if (collapsedGroups.has(groupName)) {
+                    collapsedGroups.delete(groupName);
+                } else {
+                    collapsedGroups.add(groupName);
+                }
+                localStorage.setItem('bgr_collapsed_groups', JSON.stringify([...collapsedGroups]));
+                renderFilteredProcesses();
+            });
+        });
 
         // Render mobile cards
         if (cardsEl) {
@@ -525,6 +545,7 @@ export default function mount(): () => void {
                     showToast(`Failed to stop "${name}"`, 'error');
                 }
                 await loadProcessesFresh();
+                mutationUntil = Date.now() + 3000;
                 break;
             }
 
@@ -548,6 +569,7 @@ export default function mount(): () => void {
                     showToast(`Failed to restart "${name}"`, 'error');
                 }
                 await loadProcessesFresh();
+                mutationUntil = Date.now() + 3000;
                 break;
             }
 
@@ -569,6 +591,7 @@ export default function mount(): () => void {
                     showToast(`Failed to delete "${name}"`, 'error');
                 }
                 await loadProcessesFresh();
+                mutationUntil = Date.now() + 3000;
                 break;
             }
 
@@ -746,9 +769,9 @@ export default function mount(): () => void {
         const row = tbody?.querySelector(`tr[data-process-name="${name}"]`);
         if (row) row.classList.add('selected');
 
-        // Fetch stderr line count for badge + single log refresh
+        // Fetch stderr line count for badge
+        // Note: openAccordionSection('logs') above already calls refreshDrawerLogs()
         updateStderrBadge(name);
-        refreshDrawerLogs();
     }
 
     async function updateStderrBadge(name: string) {
@@ -1127,21 +1150,7 @@ export default function mount(): () => void {
         if (drawerProcess) refreshDrawerLogs();
     });
 
-    const groupBtn = $('group-toggle-btn');
-    function updateGroupBtnState() {
-        if (groupBtn) {
-            groupBtn.classList.toggle('active', isGrouped);
-            groupBtn.style.color = isGrouped ? 'var(--accent-primary)' : '';
-        }
-    }
-    updateGroupBtnState();
-
-    groupBtn?.addEventListener('click', () => {
-        isGrouped = !isGrouped;
-        localStorage.setItem('bgr_grouped', String(isGrouped));
-        updateGroupBtnState();
-        renderFilteredProcesses();
-    });
+    // Group toggle removed — always-on directory grouping
 
     // ─── Keyboard Shortcuts ───
     function handleKeydown(e: KeyboardEvent) {
@@ -1173,6 +1182,8 @@ export default function mount(): () => void {
     function connectSSE() {
         eventSource = new EventSource('/api/events');
         eventSource.onmessage = (event) => {
+            // Skip SSE updates briefly after mutations to avoid flicker
+            if (Date.now() < mutationUntil) return;
             try {
                 allProcesses = JSON.parse(event.data);
                 // Throttle table re-renders to avoid lag on rapid SSE

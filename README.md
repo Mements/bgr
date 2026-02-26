@@ -1,8 +1,8 @@
 <div align="center">
 
-# ⚡ bgrun
+<img src="./image.png" alt="bgrun" width="600" />
 
-**Bun Background Runner — a modern process manager built on Bun**
+**Production-ready process manager with dashboard and programmatic API, designed for running your containers, services, and AI agents.**
 
 [![npm](https://img.shields.io/npm/v/bgrun?color=F7A41D&label=npm&logo=npm)](https://www.npmjs.com/package/bgrun)
 [![bun](https://img.shields.io/badge/runtime-bun-F7A41D?logo=bun)](https://bun.sh/)
@@ -55,6 +55,29 @@ bgrun --dashboard
 ```
 
 That's it. bgrun tracks the PID, captures stdout/stderr, detects the port, and survives terminal close.
+
+---
+
+## 📊 Web Dashboard
+
+
+Launch with `bgrun --dashboard` and open `http://localhost:3001`. Processes are auto-grouped by working directory.
+
+**Expose with Caddy** for remote access:
+
+```
+bgrun.yourdomain.com {
+    reverse_proxy localhost:3001
+}
+```
+
+Features:
+- Real-time process status via SSE (no polling)
+- Start, stop, restart, and delete processes from the UI
+- Live stdout/stderr log viewer with search
+- Memory, PID, port, and runtime at a glance
+- Responsive mobile layout
+- Collapsible directory groups
 
 ---
 
@@ -697,6 +720,6 @@ MIT
 
 <div align="center">
 
-Built by [Mements](https://github.com/Mements) with ⚡ Bun
+Built with ⚡ Bun
 
 </div>

@@ -17,6 +17,13 @@ import dedent from "dedent";
 import chalk from "chalk";
 import { join } from "path";
 import { sleep } from "bun";
+import { configure } from "measure-fn";
+
+if (!Bun.argv.includes("--_serve")) {
+  if (!Bun.env.MEASURE_SILENT) {
+    configure({ silent: true });
+  }
+}
 
 async function showHelp() {
   const usage = dedent`
