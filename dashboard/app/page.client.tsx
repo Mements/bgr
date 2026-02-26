@@ -335,9 +335,12 @@ export default function mount(): () => void {
     let configSubtab = 'toml'; // 'toml' | 'env'
     let logAutoScroll = localStorage.getItem('bgr_autoscroll') === 'true'; // OFF by default
     let logSearch = '';
-    let logLines: string[] = [];  // Accumulated log lines
+    let logLinesRaw: string[] = [];  // Raw text (for search filtering)
+    let logLinesHtml: string[] = []; // Pre-converted HTML (cached ansiToHtml)
     let logOffset = 0;            // Byte offset for incremental fetching
     let logCurrentTab = '';       // Track tab to reset on switch
+    let logLastSize = -1;         // Detect no-change polls
+    let logNeedsFullRebuild = true; // Full DOM rebuild flag (on tab switch, search change)
 
     // ─── Version Badge ───
     const versionBadge = $('version-badge');
@@ -639,15 +642,18 @@ export default function mount(): () => void {
         else renderEnvPanel();
     }
 
-    function switchLogSubtab(subtab: string) {
+    function switchLogSubtab(subtab: string, skipRefresh = false) {
         drawerTab = subtab as 'stdout' | 'stderr';
         $('log-subtabs')?.querySelectorAll('.accordion-subtab').forEach(btn => {
             btn.classList.toggle('active', (btn as HTMLElement).dataset.subtab === subtab);
         });
-        logLines = [];
+        logLinesRaw = [];
+        logLinesHtml = [];
         logOffset = 0;
         logCurrentTab = '';
-        refreshDrawerLogs();
+        logLastSize = -1;
+        logNeedsFullRebuild = true;
+        if (!skipRefresh) refreshDrawerLogs();
     }
 
     function renderEnvPanel() {
@@ -725,8 +731,8 @@ export default function mount(): () => void {
             meta.replaceChildren(...items);
         }
 
-        // Reset log subtab to stdout
-        switchLogSubtab('stdout');
+        // Reset log subtab to stdout (skip auto-refresh, we call it once below)
+        switchLogSubtab('stdout', true);
 
         // Open logs accordion by default
         openAccordionSection('logs');
@@ -740,11 +746,7 @@ export default function mount(): () => void {
         const row = tbody?.querySelector(`tr[data-process-name="${name}"]`);
         if (row) row.classList.add('selected');
 
-        logLines = [];
-        logOffset = 0;
-        logCurrentTab = '';
-
-        // Fetch stderr line count for badge
+        // Fetch stderr line count for badge + single log refresh
         updateStderrBadge(name);
         refreshDrawerLogs();
     }
@@ -782,6 +784,56 @@ export default function mount(): () => void {
     // Use keyed reconciler for efficient log line diffing
     setReconciler('keyed');
 
+    function fullRebuildLogs(logsEl: HTMLElement) {
+        const search = logSearch.toLowerCase();
+        if (logLinesRaw.length === 0 || (logLinesRaw.length === 1 && !logLinesRaw[0])) {
+            logsEl.innerHTML = '<em style="color: var(--text-muted)">No logs available</em>';
+            updateLogCount(0);
+            logNeedsFullRebuild = false;
+            return;
+        }
+
+        // Build all HTML in one pass using cached ansiToHtml results
+        const chunks: string[] = [];
+        let count = 0;
+        for (let i = 0; i < logLinesRaw.length; i++) {
+            if (search && !logLinesRaw[i].toLowerCase().includes(search)) continue;
+            count++;
+            const num = i + 1;
+            chunks.push(`<div class="log-line" data-ln="${num}"><span class="log-line-num">${num}</span><span class="log-line-content">${logLinesHtml[i]}</span></div>`);
+        }
+        logsEl.innerHTML = chunks.join('');
+        updateLogCount(count);
+        logNeedsFullRebuild = false;
+    }
+
+    function appendNewLogLines(logsEl: HTMLElement, startIndex: number) {
+        // Fast path: append only new lines to existing DOM
+        const search = logSearch.toLowerCase();
+        const fragment = document.createDocumentFragment();
+        let count = 0;
+        for (let i = startIndex; i < logLinesRaw.length; i++) {
+            if (search && !logLinesRaw[i].toLowerCase().includes(search)) continue;
+            count++;
+            const div = document.createElement('div');
+            div.className = 'log-line';
+            div.setAttribute('data-ln', String(i + 1));
+            div.innerHTML = `<span class="log-line-num">${i + 1}</span><span class="log-line-content">${logLinesHtml[i]}</span>`;
+            fragment.appendChild(div);
+        }
+        if (count > 0) logsEl.appendChild(fragment);
+        // Update total count
+        const total = search
+            ? logLinesRaw.filter(l => l.toLowerCase().includes(search)).length
+            : logLinesRaw.length;
+        updateLogCount(total);
+    }
+
+    function updateLogCount(count: number) {
+        const countEl = $('log-line-count');
+        if (countEl) countEl.textContent = `${count} line${count !== 1 ? 's' : ''}`;
+    }
+
     async function refreshDrawerLogs() {
         if (!drawerProcess) return;
         if (drawerTab !== 'stdout' && drawerTab !== 'stderr') return;
@@ -790,17 +842,27 @@ export default function mount(): () => void {
 
         // Reset on tab switch
         if (logCurrentTab !== drawerTab) {
-            logLines = [];
+            logLinesRaw = [];
+            logLinesHtml = [];
             logOffset = 0;
             logCurrentTab = drawerTab;
+            logLastSize = -1;
+            logNeedsFullRebuild = true;
         }
 
         try {
             const res = await fetch(`/api/logs/${encodeURIComponent(drawerProcess)}?tab=${drawerTab}&offset=${logOffset}`);
             const data = await res.json();
             const newText: string = data.text || '';
+            const newSize: number = data.size || 0;
 
-            // Update file info bar
+            // ── Fast bail: nothing changed since last poll ──
+            if (!newText && newSize === logLastSize && !logNeedsFullRebuild) {
+                return; // zero work, zero DOM touches
+            }
+            logLastSize = newSize;
+
+            // Update file info bar (lightweight, runs always)
             const infoEl = $('log-file-info');
             if (infoEl) {
                 const parts: string[] = [];
@@ -814,57 +876,42 @@ export default function mount(): () => void {
                 infoEl.innerHTML = parts.join(' <span style="color:var(--text-muted)">·</span> ');
             }
 
-            // Append new lines from incremental data
+            // ── Append new lines with cached HTML ──
+            const prevCount = logLinesRaw.length;
             if (newText) {
                 const newLines = newText.split('\n');
-                // If we have existing lines, the last line might be incomplete
-                // (split across fetches). Merge it with the first new chunk.
-                if (logLines.length > 0 && logOffset > 0) {
-                    // Last line from previous fetch may have been partial
-                    logLines[logLines.length - 1] += newLines[0];
-                    logLines.push(...newLines.slice(1));
+                if (logLinesRaw.length > 0 && logOffset > 0 && prevCount > 0) {
+                    // Merge partial last line
+                    logLinesRaw[prevCount - 1] += newLines[0];
+                    logLinesHtml[prevCount - 1] = ansiToHtml(logLinesRaw[prevCount - 1]);
+                    for (let i = 1; i < newLines.length; i++) {
+                        logLinesRaw.push(newLines[i]);
+                        logLinesHtml.push(ansiToHtml(newLines[i]));
+                    }
+                    // Need to rebuild first merged line in DOM
+                    logNeedsFullRebuild = true;
                 } else {
-                    logLines = newLines;
+                    logLinesRaw = newLines;
+                    logLinesHtml = newLines.map(l => ansiToHtml(l));
                 }
             }
 
-            // Track offset for next incremental fetch
-            logOffset = data.size || 0;
+            logOffset = newSize;
 
-            // Filter by search
-            const search = logSearch.toLowerCase();
-            const filtered = search
-                ? logLines.filter((line: string) => line.toLowerCase().includes(search))
-                : logLines;
-
-            // Build keyed VNode tree — reconciler diffs efficiently
-            const isEmpty = filtered.length === 0 || (filtered.length === 1 && !filtered[0]);
-            const vnodes = isEmpty
-                ? h('em', { style: 'color: var(--text-muted)' }, 'No logs available')
-                : h('div', null,
-                    ...filtered.map((line: string, i: number) => {
-                        const num = i + 1;
-                        return h('div', { key: `L${num}`, className: 'log-line', 'data-ln': String(num) },
-                            h('span', { className: 'log-line-num' }, String(num)),
-                            h('span', { className: 'log-line-content', dangerouslySetInnerHTML: { __html: ansiToHtml(line) } }),
-                        );
-                    })
-                );
-
-            melinaRender(vnodes, logsEl);
-
-            // Update line count indicator
-            const countEl = $('log-line-count');
-            if (countEl) {
-                countEl.textContent = `${filtered.length} line${filtered.length !== 1 ? 's' : ''}`;
+            // ── Render ──
+            if (logNeedsFullRebuild) {
+                fullRebuildLogs(logsEl);
+            } else if (logLinesRaw.length > prevCount) {
+                appendNewLogLines(logsEl, prevCount);
             }
+            // else: nothing to do
 
             if (logAutoScroll) {
                 logsEl.scrollTop = logsEl.scrollHeight;
             }
         } catch {
             const logsEl = $('drawer-logs') as HTMLElement;
-            if (logsEl) melinaRender(h('em', { style: 'color: var(--text-muted)' }, 'Failed to load logs'), logsEl);
+            if (logsEl) logsEl.innerHTML = '<em style="color: var(--text-muted)">Failed to load logs</em>';
         }
     }
 
@@ -923,6 +970,7 @@ export default function mount(): () => void {
         if (logSearchTimeout) clearTimeout(logSearchTimeout);
         logSearchTimeout = setTimeout(() => {
             logSearch = (e.target as HTMLInputElement).value;
+            logNeedsFullRebuild = true;
             refreshDrawerLogs();
         }, 200);
     });
@@ -1120,14 +1168,21 @@ export default function mount(): () => void {
     // ─── SSE Live Updates (replaces polling) ───
     let eventSource: EventSource | null = null;
     let logRefreshTimer: ReturnType<typeof setInterval> | null = null;
+    let sseThrottleTimer: ReturnType<typeof setTimeout> | null = null;
 
     function connectSSE() {
         eventSource = new EventSource('/api/events');
         eventSource.onmessage = (event) => {
             try {
                 allProcesses = JSON.parse(event.data);
-                renderFilteredProcesses();
-                updateStats(allProcesses);
+                // Throttle table re-renders to avoid lag on rapid SSE
+                if (!sseThrottleTimer) {
+                    sseThrottleTimer = setTimeout(() => {
+                        sseThrottleTimer = null;
+                        renderFilteredProcesses();
+                        updateStats(allProcesses);
+                    }, 2000);
+                }
             } catch { /* invalid data, skip */ }
         };
         eventSource.onerror = () => {
@@ -1156,5 +1211,6 @@ export default function mount(): () => void {
         document.removeEventListener('keydown', handleKeydown);
         if (eventSource) eventSource.close();
         if (logRefreshTimer) clearInterval(logRefreshTimer);
+        if (sseThrottleTimer) clearTimeout(sseThrottleTimer);
     };
 }
