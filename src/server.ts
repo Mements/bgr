@@ -8,10 +8,11 @@
  *   - If BUN_PORT env var is set → uses that (explicit, will fail if busy)
  *   - Otherwise → defaults to 3000, falls back to next available if busy
  */
-import { start } from 'melina';
 import path from 'path';
 
 export async function startServer() {
+    // Dynamic import to avoid melina's side-effect console.log at bundle load time
+    const { start } = await import('melina');
     const appDir = path.join(import.meta.dir, '../dashboard/app');
 
     // Only pass port when BUN_PORT is explicitly set.

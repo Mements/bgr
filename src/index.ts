@@ -10,7 +10,8 @@ import { showLogs } from "./commands/logs";
 import { showDetails } from "./commands/details";
 import type { CommandOptions } from "./types";
 import { error, announce } from "./logger";
-import { startServer } from "./server";
+// startServer is dynamically imported only when --_serve is used
+// to avoid loading melina (which has side-effects) on every bgrun command
 import { getHomeDir, getShellCommand, findChildPid, isProcessRunning, terminateProcess, getProcessPorts, killProcessOnPort, waitForPortFree } from "./platform";
 import { insertProcess, removeProcessByName, getProcess, retryDatabaseOperation, getDbInfo } from "./db";
 import dedent from "dedent";
@@ -38,7 +39,9 @@ async function showHelp() {
       bgrun [name]             Show details for a process
       bgrun --dashboard        Launch web dashboard (managed by bgrun)
       bgrun --restart [name]   Restart a process
+      bgrun --restart-all      Restart ALL registered processes
       bgrun --stop [name]      Stop a process (keep in registry)
+      bgrun --stop-all         Stop ALL running processes
       bgrun --delete [name]    Delete a process
       bgrun --clean            Remove all stopped processes
       bgrun --nuke             Delete ALL processes
@@ -86,7 +89,9 @@ async function run() {
       delete: { type: 'boolean' },
       nuke: { type: 'boolean' },
       restart: { type: 'boolean' },
+      "restart-all": { type: 'boolean' },
       stop: { type: 'boolean' },
+      "stop-all": { type: 'boolean' },
       clean: { type: 'boolean' },
       json: { type: 'boolean' },
       logs: { type: 'boolean' },
@@ -112,6 +117,7 @@ async function run() {
   // Port is NOT passed explicitly — Melina auto-detects from BUN_PORT env
   // or defaults to 3000 with fallback to next available port.
   if (values['_serve']) {
+    const { startServer } = await import("./server");
     await startServer();
     return;
   }
@@ -128,7 +134,15 @@ async function run() {
     // Check if dashboard is already running
     const existing = getProcess(dashboardName);
     if (existing && await isProcessRunning(existing.pid)) {
-      const existingPorts = await getProcessPorts(existing.pid);
+      // The stored PID may be the shell wrapper (cmd.exe), not the actual bun process
+      // Try the stored PID first, then traverse the process tree to find the real one
+      let existingPorts = await getProcessPorts(existing.pid);
+      if (existingPorts.length === 0) {
+        const childPid = await findChildPid(existing.pid);
+        if (childPid !== existing.pid) {
+          existingPorts = await getProcessPorts(childPid);
+        }
+      }
       const portStr = existingPorts.length > 0 ? `:${existingPorts[0]}` : '(detecting...)';
       announce(
         `Dashboard is already running (PID ${existing.pid})\n\n` +
@@ -267,6 +281,57 @@ async function run() {
 
   if (values.clean) {
     await handleClean();
+    return;
+  }
+
+  // Restart all registered processes
+  if (values['restart-all']) {
+    const { getAllProcesses } = await import('./db');
+    const all = getAllProcesses();
+    if (all.length === 0) {
+      error('No processes registered.');
+      return;
+    }
+    console.log(chalk.bold(`\n  Restarting ${all.length} processes...\n`));
+    for (const proc of all) {
+      try {
+        console.log(chalk.yellow(`  ↻ Restarting ${proc.name}...`));
+        await handleRun({
+          action: 'run',
+          name: proc.name,
+          force: true,
+          remoteName: '',
+        });
+      } catch (err: any) {
+        console.error(chalk.red(`  ✗ Failed to restart ${proc.name}: ${err.message}`));
+      }
+    }
+    console.log(chalk.green(`\n  ✓ All processes restarted.\n`));
+    return;
+  }
+
+  // Stop all running processes
+  if (values['stop-all']) {
+    const { getAllProcesses } = await import('./db');
+    const all = getAllProcesses();
+    if (all.length === 0) {
+      error('No processes registered.');
+      return;
+    }
+    console.log(chalk.bold(`\n  Stopping ${all.length} processes...\n`));
+    for (const proc of all) {
+      try {
+        if (await isProcessRunning(proc.pid)) {
+          console.log(chalk.yellow(`  ■ Stopping ${proc.name} (PID ${proc.pid})...`));
+          await handleStop(proc.name);
+        } else {
+          console.log(chalk.gray(`  ○ ${proc.name} already stopped`));
+        }
+      } catch (err: any) {
+        console.error(chalk.red(`  ✗ Failed to stop ${proc.name}: ${err.message}`));
+      }
+    }
+    console.log(chalk.green(`\n  ✓ All processes stopped.\n`));
     return;
   }
 
