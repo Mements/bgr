@@ -77,7 +77,6 @@ export default function DashboardPage() {
                             <th style={{ width: '70px' }}>Memory</th>
                             <th>Command</th>
                             <th style={{ width: '100px' }}>Runtime</th>
-                            <th style={{ width: '150px' }}>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="processes-table">

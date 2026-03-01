@@ -989,6 +989,119 @@ tr.animate-in:nth-child(10) {
     border-color: rgba(20, 184, 166, 0.3);
 }
 
+/* ─── Context Menu ─── */
+.context-menu {
+    position: fixed;
+    z-index: 10000;
+    min-width: 180px;
+    background: rgba(22, 27, 34, 0.95);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 4px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
+    animation: contextIn 0.15s ease-out;
+}
+
+.context-menu.closing {
+    animation: contextOut 0.12s ease-in forwards;
+}
+
+@keyframes contextIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(-4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+@keyframes contextOut {
+    from {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+
+    to {
+        opacity: 0;
+        transform: scale(0.95) translateY(-4px);
+    }
+}
+
+.context-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 12px;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    cursor: pointer;
+    transition: all 0.12s ease;
+    text-align: left;
+    font-family: inherit;
+}
+
+.context-item svg {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+    opacity: 0.7;
+}
+
+.context-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+}
+
+.context-item:hover svg {
+    opacity: 1;
+}
+
+.context-item.danger:hover {
+    background: var(--danger-bg);
+    color: var(--danger);
+}
+
+.context-item.danger:hover svg {
+    color: var(--danger);
+}
+
+.context-item.success:hover {
+    background: var(--success-bg);
+    color: var(--success);
+}
+
+.context-item.success:hover svg {
+    color: var(--success);
+}
+
+.context-item.deploy:hover {
+    background: rgba(20, 184, 166, 0.1);
+    color: #14b8a6;
+}
+
+.context-item.deploy:hover svg {
+    color: #14b8a6;
+}
+
+.context-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 8px;
+}
+
+/* Hint that rows are right-clickable */
+#processes-table tr[data-process-name] {
+    cursor: default;
+}
+
 /* ─── Empty State ─── */
 .empty-state {
     text-align: center;
