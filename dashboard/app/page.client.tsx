@@ -83,6 +83,17 @@ function RestartIcon() {
     );
 }
 
+function DeployIcon() {
+    return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
+            <path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+            <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+            <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+        </svg>
+    );
+}
+
 // ─── Utility: Format Runtime ───
 
 function formatRuntime(raw: string): string {
@@ -165,25 +176,6 @@ function ProcessRow({ p, animate }: { p: ProcessData; animate?: boolean }) {
             </td>
             <td className="command" title={p.command}>{p.command}</td>
             <td className="runtime">{formatRuntime(p.runtime)}</td>
-            <td className="actions">
-                <button className="action-btn info" data-action="logs" data-name={p.name} title="View Logs">
-                    <LogsIcon />
-                </button>
-                {p.running
-                    ? <button className="action-btn danger" data-action="stop" data-name={p.name} title="Stop">
-                        <StopIcon />
-                    </button>
-                    : <button className="action-btn success" data-action="restart" data-name={p.name} title="Start">
-                        <PlayIcon />
-                    </button>
-                }
-                <button className="action-btn warning" data-action="restart" data-name={p.name} title="Restart">
-                    <RestartIcon />
-                </button>
-                <button className="action-btn danger" data-action="delete" data-name={p.name} title="Delete">
-                    <TrashIcon />
-                </button>
-            </td>
         </tr>
     );
 }
@@ -255,6 +247,9 @@ function ProcessCard({ p }: { p: ProcessData }) {
                 }
                 <button className="action-btn warning" data-action="restart" data-name={p.name} title="Restart">
                     <RestartIcon /> Restart
+                </button>
+                <button className="action-btn deploy" data-action="deploy" data-name={p.name} title="Deploy (git pull + restart)">
+                    <DeployIcon /> Deploy
                 </button>
                 <button className="action-btn danger" data-action="delete" data-name={p.name} title="Delete">
                     <TrashIcon /> Delete
@@ -595,6 +590,24 @@ export default function mount(): () => void {
                 break;
             }
 
+            case 'deploy': {
+                showToast(`Deploying "${name}"...`, 'info');
+                try {
+                    const res = await fetch(`/api/deploy/${encodeURIComponent(name)}`, { method: 'POST' });
+                    const data = await res.json();
+                    if (res.ok) {
+                        showToast(`Deployed "${name}" successfully`, 'success');
+                    } else {
+                        showToast(data.error || `Failed to deploy "${name}"`, 'error');
+                    }
+                } catch {
+                    showToast(`Failed to deploy "${name}"`, 'error');
+                }
+                await loadProcessesFresh();
+                mutationUntil = Date.now() + 5000;
+                break;
+            }
+
             case 'logs':
                 openDrawer(name);
                 break;
@@ -603,20 +616,99 @@ export default function mount(): () => void {
 
     const tbody = $('processes-table');
 
-    // Row click → open drawer
-    tbody?.addEventListener('click', (e: Event) => {
-        const btn = (e.target as Element).closest('[data-action]');
-        if (btn) {
-            handleAction(e);
-            return;
+    // ─── Context Menu ───
+    let contextMenuEl: HTMLElement | null = null;
+
+    function closeContextMenu() {
+        if (contextMenuEl) {
+            contextMenuEl.classList.add('closing');
+            setTimeout(() => { contextMenuEl?.remove(); contextMenuEl = null; }, 150);
         }
+    }
+
+    function showContextMenu(name: string, x: number, y: number) {
+        closeContextMenu();
+        const proc = allProcesses.find(p => p.name === name);
+        if (!proc) return;
+
+        const menu = (
+            <div className="context-menu" style={{ left: `${x}px`, top: `${y}px` }}>
+                <button className="context-item" data-action="logs" data-name={name}>
+                    <LogsIcon /> View Logs
+                </button>
+                <div className="context-divider"></div>
+                {proc.running
+                    ? <button className="context-item danger" data-action="stop" data-name={name}>
+                        <StopIcon /> Stop
+                    </button>
+                    : <button className="context-item success" data-action="restart" data-name={name}>
+                        <PlayIcon /> Start
+                    </button>
+                }
+                <button className="context-item" data-action="restart" data-name={name}>
+                    <RestartIcon /> Restart
+                </button>
+                <button className="context-item deploy" data-action="deploy" data-name={name}>
+                    <DeployIcon /> Deploy
+                </button>
+                <div className="context-divider"></div>
+                <button className="context-item danger" data-action="delete" data-name={name}>
+                    <TrashIcon /> Delete
+                </button>
+            </div>
+        ) as unknown as HTMLElement;
+
+        // Handle clicks inside the menu
+        menu.addEventListener('click', (e: Event) => {
+            const item = (e.target as Element).closest('[data-action]');
+            if (item) {
+                handleAction(e);
+                closeContextMenu();
+            }
+        });
+
+        document.body.appendChild(menu);
+        contextMenuEl = menu;
+
+        // Adjust position if menu goes off-screen
+        const rect = menu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) menu.style.left = `${x - rect.width}px`;
+        if (rect.bottom > window.innerHeight) menu.style.top = `${y - rect.height}px`;
+    }
+
+    // Right-click on table rows → context menu
+    tbody?.addEventListener('contextmenu', (e: Event) => {
+        const me = e as MouseEvent;
+        const row = (me.target as Element).closest('tr[data-process-name]') as HTMLElement;
+        if (row && row.dataset.processName) {
+            me.preventDefault();
+            showContextMenu(row.dataset.processName, me.clientX, me.clientY);
+        }
+    });
+
+    // Close context menu on click outside or Escape
+    document.addEventListener('click', (e: Event) => {
+        if (contextMenuEl && !contextMenuEl.contains(e.target as Node)) {
+            closeContextMenu();
+        }
+    });
+    document.addEventListener('contextmenu', (e: Event) => {
+        // Allow right-click to close existing menu when clicking elsewhere
+        if (contextMenuEl && !contextMenuEl.contains(e.target as Node)) {
+            const row = (e.target as Element).closest('tr[data-process-name]');
+            if (!row) closeContextMenu();
+        }
+    });
+
+    // Row click → open drawer (left click)
+    tbody?.addEventListener('click', (e: Event) => {
         const row = (e.target as Element).closest('tr[data-process-name]') as HTMLElement;
         if (row && row.dataset.processName) {
             openDrawer(row.dataset.processName);
         }
     });
 
-    // Mobile cards click → same delegation
+    // Mobile cards click → keep inline buttons
     const mobileCards = $('mobile-cards');
     mobileCards?.addEventListener('click', (e: Event) => {
         const btn = (e.target as Element).closest('[data-action]');
@@ -629,6 +721,22 @@ export default function mount(): () => void {
             openDrawer(card.dataset.processName);
         }
     });
+
+    // Mobile cards → context menu on long-press
+    let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+    mobileCards?.addEventListener('touchstart', (e: Event) => {
+        const te = e as TouchEvent;
+        const card = (te.target as Element).closest('.process-card[data-process-name]') as HTMLElement;
+        if (card && card.dataset.processName) {
+            const name = card.dataset.processName;
+            const touch = te.touches[0];
+            longPressTimer = setTimeout(() => {
+                showContextMenu(name, touch.clientX, touch.clientY);
+            }, 500);
+        }
+    });
+    mobileCards?.addEventListener('touchend', () => { if (longPressTimer) clearTimeout(longPressTimer); });
+    mobileCards?.addEventListener('touchmove', () => { if (longPressTimer) clearTimeout(longPressTimer); });
 
     // ─── Detail Drawer ───
 
@@ -1164,6 +1272,10 @@ export default function mount(): () => void {
             return;
         }
         if (e.key === 'Escape') {
+            if (contextMenuEl) {
+                closeContextMenu();
+                return;
+            }
             if (drawer?.classList.contains('open')) {
                 closeDrawer();
             } else {
@@ -1223,6 +1335,7 @@ export default function mount(): () => void {
         $('modal-create-btn')?.removeEventListener('click', createProcess);
         $('refresh-btn')?.removeEventListener('click', loadProcesses);
         document.removeEventListener('keydown', handleKeydown);
+        closeContextMenu();
         if (eventSource) eventSource.close();
         if (logRefreshTimer) clearInterval(logRefreshTimer);
         if (sseThrottleTimer) clearTimeout(sseThrottleTimer);

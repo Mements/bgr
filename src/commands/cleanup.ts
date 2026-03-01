@@ -1,5 +1,5 @@
 
-import { getProcess, removeProcessByName, removeProcess, getAllProcesses, removeAllProcesses } from "../db";
+import { getProcess, removeProcessByName, removeProcess, getAllProcesses, removeAllProcesses, updateProcessPid } from "../db";
 import { isProcessRunning, terminateProcess, getProcessPorts, killProcessOnPort, waitForPortFree } from "../platform";
 import { announce, error } from "../logger";
 import * as fs from "fs";
@@ -82,15 +82,9 @@ export async function handleStop(name: string) {
         await killProcessOnPort(port);
     }
 
-    // Verify ports are actually freed
-    for (const port of ports) {
-        const freed = await waitForPortFree(port, 3000);
-        if (!freed) {
-            // Second attempt — sometimes needs more time on Windows
-            await killProcessOnPort(port);
-            await waitForPortFree(port, 2000);
-        }
-    }
+    // Mark PID as 0 — prevents reconcileProcessPids from re-attaching
+    // a random matching process as this one
+    updateProcessPid(name, 0);
 
     announce(`Process '${name}' has been stopped (kept in registry).`, "Process Stopped");
 }

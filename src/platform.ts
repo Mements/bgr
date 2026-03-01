@@ -28,6 +28,9 @@ export function getHomeDir(): string {
  * For Docker containers, checks container status instead of PID
  */
 export async function isProcessRunning(pid: number, command?: string): Promise<boolean> {
+  // PID 0 means intentionally stopped — never alive
+  if (pid <= 0) return false;
+
   return plat.measure(`PID ${pid} alive?`, async () => {
     try {
       // Docker container detection
@@ -320,7 +323,9 @@ export async function reconcileProcessPids(
 ): Promise<Map<string, number>> {
   return await plat.measure('Reconcile PIDs', async () => {
     const result = new Map<string, number>();
-    const needsReconciliation = processes.filter(p => deadPids.has(p.pid));
+    // Skip processes with PID=0 — these were intentionally stopped
+    // and should NOT be reconciled to avoid hijacking unrelated processes
+    const needsReconciliation = processes.filter(p => deadPids.has(p.pid) && p.pid > 0);
     if (needsReconciliation.length === 0) return result;
 
     try {
