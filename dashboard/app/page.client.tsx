@@ -83,6 +83,17 @@ function RestartIcon() {
     );
 }
 
+function DeployIcon() {
+    return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
+            <path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+            <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+            <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+        </svg>
+    );
+}
+
 // ─── Utility: Format Runtime ───
 
 function formatRuntime(raw: string): string {
@@ -180,6 +191,9 @@ function ProcessRow({ p, animate }: { p: ProcessData; animate?: boolean }) {
                 <button className="action-btn warning" data-action="restart" data-name={p.name} title="Restart">
                     <RestartIcon />
                 </button>
+                <button className="action-btn deploy" data-action="deploy" data-name={p.name} title="Deploy (git pull + restart)">
+                    <DeployIcon />
+                </button>
                 <button className="action-btn danger" data-action="delete" data-name={p.name} title="Delete">
                     <TrashIcon />
                 </button>
@@ -255,6 +269,9 @@ function ProcessCard({ p }: { p: ProcessData }) {
                 }
                 <button className="action-btn warning" data-action="restart" data-name={p.name} title="Restart">
                     <RestartIcon /> Restart
+                </button>
+                <button className="action-btn deploy" data-action="deploy" data-name={p.name} title="Deploy (git pull + restart)">
+                    <DeployIcon /> Deploy
                 </button>
                 <button className="action-btn danger" data-action="delete" data-name={p.name} title="Delete">
                     <TrashIcon /> Delete
@@ -592,6 +609,24 @@ export default function mount(): () => void {
                 }
                 await loadProcessesFresh();
                 mutationUntil = Date.now() + 3000;
+                break;
+            }
+
+            case 'deploy': {
+                showToast(`Deploying "${name}"...`, 'info');
+                try {
+                    const res = await fetch(`/api/deploy/${encodeURIComponent(name)}`, { method: 'POST' });
+                    const data = await res.json();
+                    if (res.ok) {
+                        showToast(`Deployed "${name}" successfully`, 'success');
+                    } else {
+                        showToast(data.error || `Failed to deploy "${name}"`, 'error');
+                    }
+                } catch {
+                    showToast(`Failed to deploy "${name}"`, 'error');
+                }
+                await loadProcessesFresh();
+                mutationUntil = Date.now() + 5000;
                 break;
             }
 
