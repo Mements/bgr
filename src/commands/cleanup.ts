@@ -1,5 +1,5 @@
 
-import { getProcess, removeProcessByName, removeProcess, getAllProcesses, removeAllProcesses } from "../db";
+import { getProcess, removeProcessByName, removeProcess, getAllProcesses, removeAllProcesses, updateProcessPid } from "../db";
 import { isProcessRunning, terminateProcess, getProcessPorts, killProcessOnPort, waitForPortFree } from "../platform";
 import { announce, error } from "../logger";
 import * as fs from "fs";
@@ -81,6 +81,10 @@ export async function handleStop(name: string) {
     for (const port of ports) {
         await killProcessOnPort(port);
     }
+
+    // Mark PID as 0 — prevents reconcileProcessPids from re-attaching
+    // a random matching process as this one
+    updateProcessPid(name, 0);
 
     announce(`Process '${name}' has been stopped (kept in registry).`, "Process Stopped");
 }
