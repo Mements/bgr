@@ -153,7 +153,7 @@ function ProcessRow({ p, animate }: { p: ProcessData; animate?: boolean }) {
             <td className="pid">{String(p.pid)}</td>
             <td>
                 {p.port
-                    ? <span className="port-num">:{p.port}</span>
+                    ? <a className="port-num port-link" href={`http://localhost:${p.port}`} target="_blank" rel="noopener" title={`Open localhost:${p.port}`} onClick={(e: Event) => e.stopPropagation()}>:{p.port}</a>
                     : <span style={{ color: 'var(--text-muted)' }}>–</span>
                 }
             </td>
@@ -236,7 +236,7 @@ function ProcessCard({ p }: { p: ProcessData }) {
             </div>
             <div className="card-details">
                 <div className="card-detail"><span className="card-label">PID</span><span>{p.pid}</span></div>
-                <div className="card-detail"><span className="card-label">Port</span><span>{p.port ? `:${p.port}` : '–'}</span></div>
+                <div className="card-detail"><span className="card-label">Port</span>{p.port ? <a className="port-link" href={`http://localhost:${p.port}`} target="_blank" rel="noopener" onClick={(e: Event) => e.stopPropagation()}>:{p.port}</a> : <span>–</span>}</div>
                 <div className="card-detail"><span className="card-label">Memory</span><span>{p.memory > 0 ? formatMemory(p.memory) : '–'}</span></div>
                 <div className="card-detail"><span className="card-label">Runtime</span><span>{formatRuntime(p.runtime)}</span></div>
             </div>
@@ -737,7 +737,7 @@ export default function mount(): () => void {
             const metaItems = [
                 { label: 'Status', value: proc.running ? '● Running' : '○ Stopped' },
                 { label: 'PID', value: String(proc.pid) },
-                { label: 'Port', value: proc.port ? `:${proc.port}` : '–' },
+                { label: 'Port', value: proc.port ? `:${proc.port}` : '–', href: proc.port ? `http://localhost:${proc.port}` : undefined },
                 { label: 'Runtime', value: formatRuntime(proc.runtime) },
                 { label: 'Command', value: proc.command },
                 { label: 'Directory', value: proc.directory || '–' },
@@ -745,10 +745,13 @@ export default function mount(): () => void {
                 { label: 'Group', value: proc.group || '–' },
             ];
 
-            const items = metaItems.map(m => (
+            const items = metaItems.map((m: any) => (
                 <div className="meta-item">
                     <span className="meta-label">{m.label}</span>
-                    <span className="meta-value">{m.value}</span>
+                    {m.href
+                        ? <a className="meta-value port-link" href={m.href} target="_blank" rel="noopener">{m.value}</a>
+                        : <span className="meta-value">{m.value}</span>
+                    }
                 </div>
             ) as unknown as Node);
             meta.replaceChildren(...items);

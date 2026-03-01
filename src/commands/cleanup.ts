@@ -82,6 +82,16 @@ export async function handleStop(name: string) {
         await killProcessOnPort(port);
     }
 
+    // Verify ports are actually freed
+    for (const port of ports) {
+        const freed = await waitForPortFree(port, 3000);
+        if (!freed) {
+            // Second attempt — sometimes needs more time on Windows
+            await killProcessOnPort(port);
+            await waitForPortFree(port, 2000);
+        }
+    }
+
     announce(`Process '${name}' has been stopped (kept in registry).`, "Process Stopped");
 }
 

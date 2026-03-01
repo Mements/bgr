@@ -109,51 +109,38 @@ async function getChildPids(pid: number): Promise<number[]> {
  */
 export async function terminateProcess(pid: number, force: boolean = false): Promise<void> {
   await plat.measure(`Terminate PID ${pid}`, async (m) => {
-    // First, kill children
-    const children = await m('Get children', () => getChildPids(pid)) ?? [];
-
-    for (const childPid of children) {
-      try {
-        if (isWindows()) {
-          if (force) {
-            await $`taskkill /F /PID ${childPid}`.nothrow().quiet();
-          } else {
-            await $`taskkill /PID ${childPid}`.nothrow().quiet();
-          }
-        } else {
-          const signal = force ? 'KILL' : 'TERM';
-          await $`kill -${signal} ${childPid}`.nothrow();
+    try {
+      if (isWindows()) {
+        // Always use /T (tree kill) on Windows to kill the entire process tree
+        // This prevents grandchild processes from surviving as zombies
+        await $`taskkill /F /T /PID ${pid}`.nothrow().quiet();
+      } else {
+        // On Unix, kill children first, then parent
+        const children = await m('Get children', () => getChildPids(pid)) ?? [];
+        const signal = force ? 'KILL' : 'TERM';
+        for (const childPid of children) {
+          try {
+            await $`kill -${signal} ${childPid}`.nothrow();
+          } catch { /* already dead */ }
         }
-      } catch {
-        // Ignore errors for already-dead processes
-      }
-    }
-
-    // Wait a bit for graceful shutdown
-    await Bun.sleep(500);
-
-    // Then kill the parent if still running
-    if (await isProcessRunning(pid)) {
-      try {
-        if (isWindows()) {
-          if (force) {
-            await $`taskkill /F /PID ${pid}`.nothrow().quiet();
-          } else {
-            await $`taskkill /PID ${pid}`.nothrow().quiet();
-          }
-        } else {
-          const signal = force ? 'KILL' : 'TERM';
+        await Bun.sleep(500);
+        if (await isProcessRunning(pid)) {
           await $`kill -${signal} ${pid}`.nothrow();
         }
-      } catch {
-        // Ignore errors
       }
+    } catch {
+      // Ignore errors for already-dead processes
     }
+
+    // Wait for process to fully exit
+    await Bun.sleep(300);
   });
 }
 
 /**
  * Check if a port is free by attempting to bind to it.
+ * On Windows, also checks whether the process holding the port is actually alive
+ * (zombie sockets from dead processes don't block new binds on 0.0.0.0).
  */
 export async function isPortFree(port: number): Promise<boolean> {
   try {
@@ -162,14 +149,22 @@ export async function isPortFree(port: number): Promise<boolean> {
       const result = await $`netstat -ano | findstr :${port}`.nothrow().quiet().text();
       for (const line of result.split('\n')) {
         // Only match exact port (avoid :35560 matching :3556)
-        const match = line.match(new RegExp(`:(${port})\\s+.*LISTENING`));
-        if (match) return false;
+        const match = line.match(new RegExp(`:(${port})\\s+.*LISTENING\\s+(\\d+)`));
+        if (match) {
+          const pid = parseInt(match[2]);
+          // If the PID behind the socket is dead, it's a zombie socket
+          // A new process can still bind to the port on 0.0.0.0
+          if (pid > 0 && await isProcessRunning(pid)) {
+            return false; // Real process holding the port
+          }
+          // else: zombie socket — consider port free
+        }
       }
       return true;
     } else {
       const result = await $`ss -tln sport = :${port}`.nothrow().quiet().text();
       // If output has more than the header line, port is in use
-      const lines = result.trim().split('\n').filter(l => l.trim());
+      const lines = result.trim().split('\n').filter((l: string) => l.trim());
       return lines.length <= 1;
     }
   } catch {
@@ -199,6 +194,8 @@ export async function waitForPortFree(port: number, timeoutMs: number = 5000): P
 /**
  * Kill processes using a specific port.
  * Force-kills all processes bound to the port and verifies they're gone.
+ * On Windows, filters out zombie PIDs (sockets orphaned by dead processes)
+ * since taskkill can't kill those — they require a reboot or TCP stack reset.
  */
 export async function killProcessOnPort(port: number): Promise<void> {
   try {
@@ -218,9 +215,14 @@ export async function killProcessOnPort(port: number): Promise<void> {
       }
 
       for (const pid of pids) {
-        // Force kill with /F /T (tree kill to get children too)
-        await $`taskkill /F /T /PID ${pid}`.nothrow().quiet();
-        console.log(`Killed process ${pid} using port ${port}`);
+        // Check if the process actually exists before trying to kill it
+        // This avoids the zombie PID issue where sockets linger after process death
+        const alive = await isProcessRunning(pid);
+        if (alive) {
+          await $`taskkill /F /T /PID ${pid}`.nothrow().quiet();
+          console.log(`Killed process ${pid} using port ${port}`);
+        }
+        // else: zombie socket — PID no longer exists but socket lingers in kernel
       }
     } else {
       // On Unix, use lsof

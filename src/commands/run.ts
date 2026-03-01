@@ -76,6 +76,24 @@ export async function handleRun(options: CommandOptions) {
             });
         }
 
+        // Zombie sweep: kill any remaining bun processes matching this command
+        // This catches orphaned children that survived taskkill when the parent shell exited
+        const cmdToMatch = existingProcess.command;
+        if (cmdToMatch) {
+            await run.measure('Zombie sweep', async () => {
+                try {
+                    const result = await $`powershell -Command "Get-Process -Name bun -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match '${cmdToMatch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').split(' ')[1] || cmdToMatch}' } | Select-Object -ExpandProperty Id"`.nothrow().text();
+                    const zombiePids = result.split('\n').map((l: string) => parseInt(l.trim())).filter((n: number) => !isNaN(n) && n > 0);
+                    for (const zPid of zombiePids) {
+                        await $`taskkill /F /T /PID ${zPid}`.nothrow().quiet();
+                    }
+                    if (zombiePids.length > 0) {
+                        announce(`🧹 Swept ${zombiePids.length} zombie process(es)`, 'Zombie Cleanup');
+                    }
+                } catch { /* best effort */ }
+            });
+        }
+
         await retryDatabaseOperation(() =>
             removeProcessByName(name!)
         );

@@ -898,6 +898,19 @@ tr.animate-in:nth-child(10) {
     border: 1px solid var(--info-border);
 }
 
+a.port-link {
+    text-decoration: none;
+    transition: all var(--transition-fast);
+}
+
+a.port-link:hover {
+    text-decoration: underline;
+    background: rgba(56, 189, 248, 0.15);
+    /* Slightly brighter info-bg on hover */
+    color: #7dd3fc;
+    /* Brighter info color */
+}
+
 .command {
     font-family: var(--font-mono);
     font-size: 0.75rem;
